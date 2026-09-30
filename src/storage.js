@@ -160,12 +160,29 @@ function getTempBroadcast(adminId) {
   return tempBroadcastState[String(adminId)] || null;
 }
 function setTempBroadcast(adminId, value) {
-  if (value == null) {
-    delete tempBroadcastState[String(adminId)];
-  } else {
-    tempBroadcastState[String(adminId)] = value;
+  try {
+    if (value == null) {
+      delete tempBroadcastState[String(adminId)];
+    } else {
+      tempBroadcastState[String(adminId)] = value;
+    }
+    saveTempBroadcast();
+  } catch (e) {
+    console.warn('[setTempBroadcast 保存失败（不影响使用）]', e.message);
   }
-  saveTempBroadcast();
+}
+function clearTempBroadcast(adminId) {
+  try {
+    if (adminId != null) {
+      delete tempBroadcastState[String(adminId)];
+      saveTempBroadcast();
+    } else {
+      tempBroadcastState = {};
+      saveTempBroadcast();
+    }
+  } catch (e) {
+    console.warn('[clearTempBroadcast 失败（不影响使用）]', e.message);
+  }
 }
 
 module.exports = {
@@ -181,4 +198,5 @@ module.exports = {
   getAllSettings,
   getTempBroadcast,
   setTempBroadcast,
+  clearTempBroadcast,
 };

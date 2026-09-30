@@ -6,12 +6,14 @@ const {
   getUserCount,
   createSession,
   getSession,
+  deleteSession,
   isVercel,
   getSetting,
   setSetting,
   getAllSettings,
   getTempBroadcast,
   setTempBroadcast,
+  clearTempBroadcast,
 } = require('./storage');
 const {
   buildInlineKeyboard,
@@ -308,9 +310,9 @@ async function showBroadcastButtonsPage(ctx, modeLabel) {
   const current = getEffectiveBroadcastButtons();
   const buttonsArr = Array.isArray(current) && current.length > 0 && Array.isArray(current[0])
     ? current
-    : parseButtonsArray(JSON.stringify(current));
+    : parseButtonsFriendly(JSON.stringify(current)) || parseButtonsArray(JSON.stringify(current)) || [];
   setTempBroadcast(adminId, { buttons: buttonsArr, modeLabel });
-  const ctrl = buildBroadcastButtonsControls(adminId, Array.isArray(current) && current.length > 0 && Array.isArray(current[0]) ? current.flat() : current);
+  const ctrl = buildBroadcastButtonsControls(adminId, Array.isArray(buttonsArr) && buttonsArr.length > 0 && Array.isArray(buttonsArr[0]) ? buttonsArr.flat() : buttonsArr);
   let userCount = 0;
   try { userCount = getUserCount(); } catch (_) {}
   await ctx.editMessageText(`${modeLabel}\n共 ${userCount} 位用户将收到\n\n🔘 当前广播底部按钮配置：\n${ctrl.buttonsText}\n\n✨ 你可以在这里临时改这一次广播要用的按钮（改完点 ✅ 继续发送），也可以点 ➕ 替换按钮。如果想要永久性修改，请用「⚙️ 配置管理」改。\n\n准备好之后点：\n  ✅ 用当前按钮继续 → 下一步发送你要广播的内容`, {
@@ -458,19 +460,99 @@ async function handleTempBroadcastCallback(ctx, action, adminId) {
   return { handled: true };
 }
 
+bot.callbackQuery('back_to_menu', async (ctx) => {
+  if (!isAdmin(ctx.from?.id)) { await ctx.answerCallbackQuery('无权限'); return; }
+  clearAdminMode(ctx.from.id);
+  try { clearTempBroadcast(String(ctx.from.id)); } catch (_) {}
+  await ctx.answerCallbackQuery();
+  let userCount = 0;
+  try { userCount = getUserCount(); } catch (_) {}
+  try {
+    await ctx.editMessageText(`🎛️ 管理员控制台\n\n当前用户数：${userCount} 人${isVercel ? '\n\n⚠️ 当前环境：Vercel Serverless\n冷启动数据会重置，用户量大请改用 aapanel 部署。' : ''}\n\n⚙️ 配置管理 → 直接在 Telegram 改欢迎消息、按钮，不用去 Vercel 重部署！`, {
+      reply_markup: buildAdminBroadcastKeyboard(userCount),
+    });
+  } catch {
+    try {
+      await ctx.reply(`🎛️ 管理员控制台\n\n当前用户数：${userCount} 人${isVercel ? '\n\n⚠️ 当前环境：Vercel Serverless\n冷启动数据会重置，用户量大请改用 aapanel 部署。' : ''}\n\n⚙️ 配置管理 → 直接在 Telegram 改欢迎消息、按钮，不用去 Vercel 重部署！`, {
+        reply_markup: buildAdminBroadcastKeyboard(userCount),
+      });
+    } catch {}
+  }
+});
+
+bot.callbackQuery('cancel_action', async (ctx) => {
+  if (!isAdmin(ctx.from?.id)) { await ctx.answerCallbackQuery('无权限'); return; }
+  clearAdminMode(ctx.from.id);
+  try { clearTempBroadcast(String(ctx.from.id)); } catch (_) {}
+  await ctx.answerCallbackQuery();
+  let userCount = 0;
+  try { userCount = getUserCount(); } catch (_) {}
+  try {
+    await ctx.editMessageText(`🎛️ 管理员控制台\n\n当前用户数：${userCount} 人${isVercel ? '\n\n⚠️ 当前环境：Vercel Serverless\n冷启动数据会重置，用户量大请改用 aapanel 部署。' : ''}`, {
+      reply_markup: buildAdminBroadcastKeyboard(userCount),
+    });
+  } catch {
+    try {
+      await ctx.reply(`🎛️ 管理员控制台\n\n当前用户数：${userCount} 人${isVercel ? '\n\n⚠️ 当前环境：Vercel Serverless\n冷启动数据会重置，用户量大请改用 aapanel 部署。' : ''}`, {
+        reply_markup: buildAdminBroadcastKeyboard(userCount),
+      });
+    } catch {}
+  }
+});
+
 const tmpBtnRegex = /^(tmp_btn_set|tmp_btn_clear|tmp_btn_preview|tmp_btn_continue)\|(.+)$/;
 bot.on('callback_query', async (ctx, next) => {
-  const data = ctx.callbackQuery.data;
-  if (!data) return next();
-  const m = data.match(tmpBtnRegex);
-  if (m && isAdmin(ctx.from?.id)) {
-    const [, action, adminId] = m;
-    if (String(adminId) === String(ctx.from.id)) {
-      await handleTempBroadcastCallback(ctx, action, adminId);
+  try {
+    if (!ctx || !ctx.callbackQuery) return next && typeof next === 'function' ? next() : undefined;
+    const data = ctx.callbackQuery && ctx.callbackQuery.data ? String(ctx.callbackQuery.data) : '';
+    if (!data) return next && typeof next === 'function' ? next() : undefined;
+    const m = data.match(tmpBtnRegex);
+    if (m && isAdmin(ctx.from?.id)) {
+      const [, action, adminId] = m;
+      if (String(adminId) === String(ctx.from.id)) {
+        const ret = await handleTempBroadcastCallback(ctx, action, adminId);
+        if (ret && ret.handled) return;
+      }
+    }
+    if (data.startsWith('cfg_set_') || data === 'cfg_preview' || data === 'cfg_reset_all' || data === 'settings_menu'
+        || data === 'broadcast_text' || data === 'broadcast_photo' || data === 'broadcast_mixed' || data === 'broadcast_smart'
+        || data === 'pin_message' || data === 'user_stats') {
+      return next && typeof next === 'function' ? next() : undefined;
+    }
+    return next && typeof next === 'function' ? next() : undefined;
+  } catch (e) {
+    console.error('[callback_query 中间件异常]', e && e.stack ? e.stack : e);
+    try { await ctx.answerCallbackQuery({ text: '操作出错了，请返回菜单重试', show_alert: true }); } catch (_) {}
+    return next && typeof next === 'function' ? next() : undefined;
+  }
+});
+
+bot.on('callback_query', async (ctx, next) => {
+  try {
+    if (!ctx.callbackQuery) return next && typeof next === 'function' ? next() : undefined;
+    const data = ctx.callbackQuery && ctx.callbackQuery.data ? String(ctx.callbackQuery.data) : '';
+    if (!data) return next && typeof next === 'function' ? next() : undefined;
+    console.log('[DEBUG callback_query] from=', ctx.from && ctx.from.id, 'data=', data, 'isAdmin=', isAdmin(ctx.from?.id));
+    const adminId = String(ctx.from?.id || '');
+    const adm = getAdminMode(adminId);
+    if (adm && adm.mode === 'broadcast_buttons_wait' && data === 'back_to_menu') {
+      clearAdminMode(adminId);
+      try { clearTempBroadcast(adminId); } catch (_) {}
+      let userCount = 0;
+      try { userCount = getUserCount(); } catch (_) {}
+      await ctx.answerCallbackQuery();
+      try {
+        await ctx.editMessageText(`🎛️ 管理员控制台\n\n当前用户数：${userCount} 人${isVercel ? '\n\n⚠️ 当前环境：Vercel Serverless\n冷启动数据会重置，用户量大请改用 aapanel 部署。' : ''}`, {
+          reply_markup: buildAdminBroadcastKeyboard(userCount),
+        });
+      } catch {}
       return;
     }
+    return next && typeof next === 'function' ? next() : undefined;
+  } catch (e) {
+    console.error('[callback_query 兜底中间件异常]', e && e.stack ? e.stack : e);
+    return next && typeof next === 'function' ? next() : undefined;
   }
-  return next();
 });
 
 bot.callbackQuery('pin_message', async (ctx) => {

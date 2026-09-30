@@ -128,44 +128,6 @@ function stringifyButtons(buttons) {
   return lines.join('\n');
 }
 
-function buildQuoteBlockOnlyBody(bodyLinesRaw) {
-  const q = [];
-  const contentLines = [];
-  if (bodyLinesRaw && bodyLinesRaw.length > 0) {
-    for (const l of bodyLinesRaw) {
-      if (l) contentLines.push(`${l}`);
-      else contentLines.push('');
-    }
-  }
-  if (contentLines.length === 0) return '';
-  const maxW = Math.max(26, ...contentLines.map(c => {
-    let w = 0;
-    for (const ch of c) {
-      const code = ch.codePointAt(0);
-      if (!code) continue;
-      w += (ch === '\t' ? 4 : (code > 127 || (code >= 0x300 && code <= 0x36F)) ? 2 : 1);
-    }
-    return w;
-  }));
-  const pad = (s, len) => {
-    let cur = 0;
-    const out = [s];
-    for (const ch of s) {
-      const code = ch.codePointAt(0);
-      if (!code) continue;
-      cur += (ch === '\t' ? 4 : (code > 127 || (code >= 0x300 && code <= 0x36F)) ? 2 : 1);
-    }
-    while (cur < len) { out.push(' '); cur += 1; }
-    return out.join('');
-  };
-  q.push(`╭${'─'.repeat(maxW + 2)}╮`);
-  for (const line of contentLines) {
-    q.push(`│ ${pad(line, maxW)} │`);
-  }
-  q.push(`╰${'─'.repeat(maxW + 2)}╯`);
-  return q.join('\n');
-}
-
 function buildWelcomeText(ctx) {
   const userName = escapeHtml(ctx.from?.first_name || '朋友');
   const title = unescapeNewlines(escapeHtml(getEffectiveWelcomeTitle()));
@@ -173,7 +135,6 @@ function buildWelcomeText(ctx) {
   const statusRaw = unescapeNewlines(getEffectiveWelcomeStatus());
   const premiumEmojiId = getEffectiveWelcomePremiumEmojiId();
   const premiumEmojiText = getEffectiveWelcomePremiumEmojiText() || '✨';
-  const lockIcon = renderMaybePremium(getEffectiveQuoteLockEmojiId(), '🔒');
 
   const lines = [];
   const prefixIcon = renderMaybePremium(premiumEmojiId, premiumEmojiText);
@@ -182,18 +143,9 @@ function buildWelcomeText(ctx) {
   lines.push('');
 
   if (msg) {
-    const msgLines = msg.split('\n').filter(x => x !== undefined && x !== null);
-    const titleLine = escapeHtml(msgLines[0] || '');
-    const bodyLines = msgLines.slice(1).map(l => escapeHtml(l));
-    if (titleLine) {
-      lines.push(`${lockIcon} ${titleLine}`);
-      lines.push('');
-    }
-    const bodyBlock = buildQuoteBlockOnlyBody(bodyLines);
-    if (bodyBlock) {
-      lines.push(bodyBlock);
-      lines.push('');
-    }
+    const msgLines = msg.split('\n').filter(x => x !== undefined && x !== null).map(l => escapeHtml(l));
+    for (const l of msgLines) lines.push(l);
+    lines.push('');
   }
 
   if (statusRaw) {
