@@ -14,10 +14,13 @@ const {
   getTempBroadcast,
   setTempBroadcast,
   clearTempBroadcast,
+  getLastAutoReplyTs,
+  setLastAutoReplyTs,
 } = require('./storage');
 const {
   buildInlineKeyboard,
   buildWelcomeText,
+  buildAutoReplyText,
   buildUserInfo,
   buildAdminBroadcastKeyboard,
   buildCancelKeyboard,
@@ -25,11 +28,29 @@ const {
   buildBroadcastButtonsControls,
   stringifyButtons,
   parseButtonsArray,
+  parseButtonsFriendly,
   escapeHtml,
+  unescapeNewlines,
   getEffectiveInlineButtons,
   getEffectiveBroadcastButtons,
+  getEffectiveWelcomeTitle,
+  getEffectiveWelcomeMessage,
+  getEffectiveWelcomeStatus,
+  getEffectiveWelcomeFooter,
   getEffectiveWelcomeImageUrl,
   getEffectiveWelcomeStickerId,
+  getEffectiveWelcomePremiumEmojiId,
+  getEffectiveWelcomePremiumEmojiText,
+  getEffectiveStatusCheckEmojiId,
+  getEffectiveStatusGlobeEmojiId,
+  getEffectiveStatusBellEmojiId,
+  getEffectiveQuoteLockEmojiId,
+  getEffectiveHeartEmojiId,
+  getEffectiveFooterGlobeEmojiId,
+  getEffectiveAutoReplyEnabled,
+  getEffectiveAutoReplyText,
+  getEffectiveAutoReplyBotEmojiId,
+  renderMaybePremium,
 } = require('./helpers');
 
 if (!config.botToken) {
@@ -241,6 +262,7 @@ const PREMIUM_TEXT_COMPANION = {
   status_check_emoji_id: null,
   status_globe_emoji_id: null,
   status_bell_emoji_id: null,
+  auto_reply_bot_emoji_id: null,
 };
 
 const CFG_KEYS = {
@@ -259,6 +281,9 @@ const CFG_KEYS = {
   cfg_set_status_bell: { key: 'status_bell_emoji_id', name: '🔔状态铃铛（Premium）', example: '6170277659566676368|🔔', type: 'premium_emoji' },
   cfg_set_inline_buttons: { key: 'inline_buttons', name: '欢迎底部按钮', example: '按钮1|https://a.com', type: 'buttons_json' },
   cfg_set_broadcast_buttons: { key: 'broadcast_buttons', name: '广播默认按钮', example: '点击查看|https://example.com', type: 'buttons_json' },
+  cfg_set_auto_reply_text: { key: 'auto_reply_text', name: '用户消息自动回复内容', example: '悠米bot已接收您的消息，请耐心等待人工客服的回复。感谢您的理解与等待哦～', type: 'text' },
+  cfg_set_auto_reply_bot: { key: 'auto_reply_bot_emoji_id', name: '自动回复🤖图标（Premium）', example: '6170277659566676368|🤖', type: 'premium_emoji' },
+  cfg_set_auto_reply_enabled: { key: 'auto_reply_enabled', name: '自动回复开关（true开/false关）', example: 'true', type: 'text' },
 };
 
 for (const [cbId, cfg] of Object.entries(CFG_KEYS)) {
@@ -339,7 +364,7 @@ bot.callbackQuery('cfg_preview', async (ctx) => {
 bot.callbackQuery('cfg_reset_all', async (ctx) => {
   try {
     if (!isAdmin(ctx.from?.id)) { await safeAnswerAlert(ctx, '无权限', true); return; }
-    const keysToRemove = ['welcome_title','welcome_message','welcome_status','welcome_footer','welcome_image_url','welcome_sticker_id','welcome_premium_emoji_id','welcome_premium_emoji_text','heart_emoji_id','footer_globe_emoji_id','status_check_emoji_id','status_globe_emoji_id','status_bell_emoji_id','quote_lock_emoji_id','inline_buttons','broadcast_buttons'];
+    const keysToRemove = ['welcome_title','welcome_message','welcome_status','welcome_footer','welcome_image_url','welcome_sticker_id','welcome_premium_emoji_id','welcome_premium_emoji_text','heart_emoji_id','footer_globe_emoji_id','status_check_emoji_id','status_globe_emoji_id','status_bell_emoji_id','quote_lock_emoji_id','inline_buttons','broadcast_buttons','auto_reply_enabled','auto_reply_text','auto_reply_bot_emoji_id'];
     for (const k of keysToRemove) {
       try { setSetting(k, ''); } catch (_) {}
     }
@@ -761,6 +786,18 @@ bot.on('message', async (ctx, next) => {
     }
   } else {
     try {
+      if (getEffectiveAutoReplyEnabled()) {
+        const nowTs = Date.now();
+        const last = getLastAutoReplyTs(fromId);
+        if (nowTs - last >= 60 * 1000) {
+          try {
+            await ctx.reply(buildAutoReplyText(), { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
+            setLastAutoReplyTs(fromId, nowTs);
+          } catch (autoErr) {
+            console.warn('[自动回复失败，不影响转发]', autoErr.message);
+          }
+        }
+      }
       await forwardToAdmins(ctx);
       return;
     } catch (e) {

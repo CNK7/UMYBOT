@@ -27,6 +27,9 @@ const config = {
   quoteLockEmojiId: process.env.QUOTE_LOCK_EMOJI_ID || '',
   heartEmojiId: process.env.HEART_EMOJI_ID || '',
   footerGlobeEmojiId: process.env.FOOTER_GLOBE_EMOJI_ID || '',
+  autoReplyEnabled: (process.env.AUTO_REPLY_ENABLED || 'true').toLowerCase() !== 'false',
+  autoReplyText: process.env.AUTO_REPLY_TEXT || '悠米bot已接收您的消息，请耐心等待人工客服的回复。感谢您的理解与等待哦～',
+  autoReplyBotEmojiId: process.env.AUTO_REPLY_BOT_EMOJI_ID || '',
 
   inlineButtons: parseButtons(process.env.INLINE_BUTTONS),
   broadcastButtons: parseButtons(process.env.BROADCAST_BUTTONS),

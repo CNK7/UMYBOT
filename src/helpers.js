@@ -66,6 +66,13 @@ function getEffectiveQuoteLockEmojiId() { return getSetting('quote_lock_emoji_id
 function getEffectiveHeartEmojiId() { return getSetting('heart_emoji_id', config.heartEmojiId || ''); }
 function getEffectiveFooterGlobeEmojiId() { return getSetting('footer_globe_emoji_id', config.footerGlobeEmojiId || ''); }
 function getEffectiveWelcomeFooter() { return getSetting('welcome_footer', config.welcomeFooter || ''); }
+function getEffectiveAutoReplyEnabled() {
+  const v = getSetting('auto_reply_enabled', null);
+  if (v === null) return !!config.autoReplyEnabled;
+  return String(v).toLowerCase() !== 'false';
+}
+function getEffectiveAutoReplyText() { return getSetting('auto_reply_text', config.autoReplyText || '悠米bot已接收您的消息，请耐心等待人工客服的回复。感谢您的理解与等待哦～'); }
+function getEffectiveAutoReplyBotEmojiId() { return getSetting('auto_reply_bot_emoji_id', config.autoReplyBotEmojiId || ''); }
 function isValidCustomEmojiId(id) {
   if (!id) return false;
   return /^\d{10,25}$/.test(String(id).trim());
@@ -210,6 +217,13 @@ function buildWelcomeText(ctx) {
   return lines.join('\n');
 }
 
+function buildAutoReplyText() {
+  const botIcon = renderMaybePremium(getEffectiveAutoReplyBotEmojiId(), '🤖');
+  const text = unescapeNewlines(escapeHtml(getEffectiveAutoReplyText()))
+    .replace(/^🤖\s*/, '');
+  return botIcon + text;
+}
+
 function buildUserInfo(ctx) {
   const from = ctx.from;
   if (!from) return '未知用户';
@@ -255,8 +269,12 @@ function buildSettingsMenu() {
     .text('🌐 状态地球', 'cfg_set_status_globe')
     .row()
     .text('🔔 状态铃铛', 'cfg_set_status_bell')
-    .text('🔘 欢迎按钮', 'cfg_set_inline_buttons')
+    .text('🤖 自动回复🤖', 'cfg_set_auto_reply_bot')
     .row()
+    .text('💬 自动回复内容', 'cfg_set_auto_reply_text')
+    .text('🎚️ 自动回复开关', 'cfg_set_auto_reply_enabled')
+    .row()
+    .text('🔘 欢迎按钮', 'cfg_set_inline_buttons')
     .text('🔘 广播按钮', 'cfg_set_broadcast_buttons')
     .row()
     .text('👁️ 预览欢迎消息', 'cfg_preview')
@@ -288,6 +306,7 @@ function buildBroadcastButtonsControls(adminId, currentButtons) {
 module.exports = {
   buildInlineKeyboard,
   buildWelcomeText,
+  buildAutoReplyText,
   buildUserInfo,
   buildAdminBroadcastKeyboard,
   buildCancelKeyboard,
@@ -313,5 +332,8 @@ module.exports = {
   getEffectiveHeartEmojiId,
   getEffectiveFooterGlobeEmojiId,
   getEffectiveWelcomeFooter,
+  getEffectiveAutoReplyEnabled,
+  getEffectiveAutoReplyText,
+  getEffectiveAutoReplyBotEmojiId,
   renderMaybePremium,
 };

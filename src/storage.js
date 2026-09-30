@@ -82,6 +82,7 @@ let users = readJson(usersFile, {});
 let sessions = readJson(sessionsFile, {});
 let settings = readJson(settingsFile, {});
 let tempBroadcastState = readJson(tempBroadcastFile, {});
+let userLastAutoReplyTs = {};
 
 function saveUsers() {
   writeJson(usersFile, users);
@@ -185,6 +186,13 @@ function clearTempBroadcast(adminId) {
   }
 }
 
+function getLastAutoReplyTs(userId) {
+  return userLastAutoReplyTs[String(userId)] || 0;
+}
+function setLastAutoReplyTs(userId, ts) {
+  userLastAutoReplyTs[String(userId)] = ts || Date.now();
+}
+
 module.exports = {
   addUser,
   getAllUsers,
@@ -199,4 +207,6 @@ module.exports = {
   getTempBroadcast,
   setTempBroadcast,
   clearTempBroadcast,
+  getLastAutoReplyTs,
+  setLastAutoReplyTs,
 };
