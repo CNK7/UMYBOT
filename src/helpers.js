@@ -66,8 +66,13 @@ function getEffectiveQuoteLockEmojiId() { return getSetting('quote_lock_emoji_id
 function getEffectiveHeartEmojiId() { return getSetting('heart_emoji_id', config.heartEmojiId || ''); }
 function getEffectiveFooterGlobeEmojiId() { return getSetting('footer_globe_emoji_id', config.footerGlobeEmojiId || ''); }
 function getEffectiveWelcomeFooter() { return getSetting('welcome_footer', config.welcomeFooter || ''); }
+function isValidCustomEmojiId(id) {
+  if (!id) return false;
+  return /^\d{10,25}$/.test(String(id).trim());
+}
 function renderMaybePremium(emojiId, fallback) {
-  if (emojiId) return `<tg-emoji emoji-id="${emojiId}">${fallback}</tg-emoji>`;
+  const clean = String(emojiId || '').trim();
+  if (isValidCustomEmojiId(clean)) return `<tg-emoji emoji-id="${clean}">${fallback}</tg-emoji>`;
   return fallback;
 }
 
@@ -136,7 +141,7 @@ function buildWelcomeText(ctx) {
   const title = unescapeNewlines(escapeHtml(getEffectiveWelcomeTitle()));
   const msg = unescapeNewlines(getEffectiveWelcomeMessage());
   const statusRaw = unescapeNewlines(getEffectiveWelcomeStatus());
-  const footerRaw = unescapeNewlines(getEffectiveWelcomeFooter());
+  const footerRaw = unescapeNewlines(getEffectiveWelcomeFooter()).replace(/[\r\n]+/g, ' ').trim();
   const premiumEmojiId = getEffectiveWelcomePremiumEmojiId();
   const premiumEmojiText = getEffectiveWelcomePremiumEmojiText() || '✨';
   const lockIcon = renderMaybePremium(getEffectiveQuoteLockEmojiId(), '🔒');
@@ -151,13 +156,25 @@ function buildWelcomeText(ctx) {
 
   if (msg) {
     const msgLines = msg.split('\n').filter(x => x !== undefined && x !== null).map(l => escapeHtml(l));
-    for (const l of msgLines) {
-      if (/^🔒\s*/.test(l)) {
-        lines.push(l.replace(/^🔒\s*/, lockIcon + ' '));
-      } else if (/^💗/.test(l)) {
-        lines.push(l.replace(/^💗\s*/, heartIcon));
+    for (const rawLine of msgLines) {
+      const line = String(rawLine || '').trim();
+      if (line === '') {
+        lines.push('');
+        continue;
+      }
+      if (line === '│' || /^\s*│\s*$/.test(line)) {
+        lines.push('                                                                        │');
+        continue;
+      }
+      const cleanContent = line
+        .replace(/^🔒\s*/, '')
+        .replace(/^💗\s*/, '');
+      if (cleanContent.includes('专属会话已建立')) {
+        lines.push(`${lockIcon} ${cleanContent}`);
+      } else if (cleanContent.includes('请直接发送需要咨询') || cleanContent.includes('请直接发') && cleanContent.includes('尽快回复')) {
+        lines.push(`${heartIcon}${cleanContent}`);
       } else {
-        lines.push(l);
+        lines.push(rawLine);
       }
     }
     lines.push('');
@@ -168,22 +185,25 @@ function buildWelcomeText(ctx) {
     const globeIcon = renderMaybePremium(getEffectiveStatusGlobeEmojiId(), '🌐');
     const bellIcon = renderMaybePremium(getEffectiveStatusBellEmojiId(), '🔔');
     const statLines = statusRaw.split('\n').map(x => {
-      const xEscaped = escapeHtml(x);
-      if (/^(✅|✅ )?当前状态/.test(xEscaped)) return xEscaped.replace(/^✅\s*/, checkIcon + ' ');
-      if (/^(🌐|🌐 )?会话通道/.test(xEscaped)) return xEscaped.replace(/^🌐\s*/, globeIcon + ' ');
-      if (/^(🔔|🔔 )?消息通知/.test(xEscaped)) return xEscaped.replace(/^🔔\s*/, bellIcon + ' ');
-      return xEscaped;
+      const raw = String(x || '').trim();
+      const xEscaped = escapeHtml(raw)
+        .replace(/^✅\s*/, '')
+        .replace(/^🌐\s*/, '')
+        .replace(/^🔔\s*/, '');
+      if (xEscaped.includes('当前状态')) return checkIcon + ' ' + xEscaped;
+      if (xEscaped.includes('会话通道')) return globeIcon + ' ' + xEscaped;
+      if (xEscaped.includes('消息通知')) return bellIcon + ' ' + xEscaped;
+      return escapeHtml(x);
     });
     lines.push(statLines.join('\n'));
     if (footerRaw) lines.push('');
   }
 
   if (footerRaw) {
-    const escaped = escapeHtml(footerRaw);
-    if (/^🌍/.test(escaped)) {
-      lines.push(escaped.replace(/^🌍\s*/, footerGlobeIcon));
-    } else {
-      lines.push(escaped);
+    const trimmed = footerRaw.trim();
+    const cleanFooter = trimmed.replace(/^🌍\s*/, '');
+    if (cleanFooter.length > 0) {
+      lines.push(footerGlobeIcon + cleanFooter);
     }
   }
 
