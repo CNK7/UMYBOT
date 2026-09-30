@@ -128,22 +128,41 @@ function stringifyButtons(buttons) {
   return lines.join('\n');
 }
 
-function buildQuoteBlock(title, bodyEmojiPrefix, bodyLinesRaw) {
+function buildQuoteBlockOnlyBody(bodyLinesRaw) {
   const q = [];
-  const leftBar = '▍';
-  const lockIcon = renderMaybePremium(getEffectiveQuoteLockEmojiId(), bodyEmojiPrefix || '🔒');
-  q.push(`${leftBar}${lockIcon} ${escapeHtml(title || '')}\t\t\t\t\t」`);
-  q.push(`${leftBar}`);
+  const contentLines = [];
   if (bodyLinesRaw && bodyLinesRaw.length > 0) {
-    for (const line of bodyLinesRaw) {
-      if (line) {
-        q.push(`${leftBar}  ${line}`);
-      } else {
-        q.push(`${leftBar}`);
-      }
+    for (const l of bodyLinesRaw) {
+      if (l) contentLines.push(`${l}`);
+      else contentLines.push('');
     }
   }
-  q.push(`${leftBar}`);
+  if (contentLines.length === 0) return '';
+  const maxW = Math.max(26, ...contentLines.map(c => {
+    let w = 0;
+    for (const ch of c) {
+      const code = ch.codePointAt(0);
+      if (!code) continue;
+      w += (ch === '\t' ? 4 : (code > 127 || (code >= 0x300 && code <= 0x36F)) ? 2 : 1);
+    }
+    return w;
+  }));
+  const pad = (s, len) => {
+    let cur = 0;
+    const out = [s];
+    for (const ch of s) {
+      const code = ch.codePointAt(0);
+      if (!code) continue;
+      cur += (ch === '\t' ? 4 : (code > 127 || (code >= 0x300 && code <= 0x36F)) ? 2 : 1);
+    }
+    while (cur < len) { out.push(' '); cur += 1; }
+    return out.join('');
+  };
+  q.push(`╭${'─'.repeat(maxW + 2)}╮`);
+  for (const line of contentLines) {
+    q.push(`│ ${pad(line, maxW)} │`);
+  }
+  q.push(`╰${'─'.repeat(maxW + 2)}╯`);
   return q.join('\n');
 }
 
@@ -154,6 +173,7 @@ function buildWelcomeText(ctx) {
   const statusRaw = unescapeNewlines(getEffectiveWelcomeStatus());
   const premiumEmojiId = getEffectiveWelcomePremiumEmojiId();
   const premiumEmojiText = getEffectiveWelcomePremiumEmojiText() || '✨';
+  const lockIcon = renderMaybePremium(getEffectiveQuoteLockEmojiId(), '🔒');
 
   const lines = [];
   const prefixIcon = renderMaybePremium(premiumEmojiId, premiumEmojiText);
@@ -162,11 +182,18 @@ function buildWelcomeText(ctx) {
   lines.push('');
 
   if (msg) {
-    const msgLines = msg.split('\n');
-    const firstLine = msgLines[0] || '';
-    const rest = msgLines.slice(1).map(l => escapeHtml(l));
-    lines.push(buildQuoteBlock(firstLine, '🔒', rest));
-    lines.push('');
+    const msgLines = msg.split('\n').filter(x => x !== undefined && x !== null);
+    const titleLine = escapeHtml(msgLines[0] || '');
+    const bodyLines = msgLines.slice(1).map(l => escapeHtml(l));
+    if (titleLine) {
+      lines.push(`${lockIcon} ${titleLine}`);
+      lines.push('');
+    }
+    const bodyBlock = buildQuoteBlockOnlyBody(bodyLines);
+    if (bodyBlock) {
+      lines.push(bodyBlock);
+      lines.push('');
+    }
   }
 
   if (statusRaw) {

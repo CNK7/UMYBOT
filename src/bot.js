@@ -238,13 +238,20 @@ for (const [cbId, cfg] of Object.entries(CFG_KEYS)) {
     setAdminMode(ctx.from.id, 'cfg_set_' + cfg.key, { type: cfg.type });
     await ctx.answerCallbackQuery();
     const current = getSetting(cfg.key, '(空)');
-    const example = cfg.type === 'text' ? cfg.example : cfg.example;
-    let typeTip = '';
-    if (cfg.type === 'buttons_json') typeTip = '（JSON数组 格式）';
-    if (cfg.type === 'premium_emoji') typeTip = '（格式：custom_emoji_id|替代文字，2个用竖线|分隔）';
-    let help = `✏️ 设置 ${cfg.name}${typeTip}\n\n📌 当前值：\n${escapeHtml(JSON.stringify(current))}\n\n💡 示例值：\n${escapeHtml(example)}\n\n请直接发送要设置的新值，或点「← 返回菜单」取消：`;
-    if (cfg.type === 'premium_emoji') {
-      help = `🌟 设置Premium自定义表情+替代文字\n\n📋 两种使用方法：\n1️⃣ 把那个盾牌/V7 等Premium表情（Emoji面板里的）发到 @RawDataBot 拿 JSON\n2️⃣ 在 JSON 里找 entities[].custom_emoji_id = "123456abcdef 这一串\n3️⃣ 按「custom_emoji_id|替代文字」格式发出来\n\n示例：\n${escapeHtml(example)}\n\n📌 当前值：\n${escapeHtml(JSON.stringify(current))}\n\n请直接发送要设置的新值（id|文字），或点「← 返回菜单」取消：`;
+    const example = cfg.example;
+    let help = '';
+    if (cfg.type === 'buttons_json') {
+      help = `🔘 设置 ${cfg.name}\n\n✅ 两种写法任选一种（都支持！）：\n\n【写法1 —— 推荐，简单，一行一个按钮】\n按钮文字1|https://链接1\n按钮文字2|https://链接2\n\n【想要一行放多个按钮？】写在同一行，中间用 空格|空格 隔开：\n按钮1|https://a.com | 按钮2|https://b.com\n\n【想要手动换行？】空一行 或 写一行 --- ：\n按钮1|a.com\n按钮2|b.com\n\n按钮3|c.com\n\n【写法2 —— 标准JSON二维数组（精确控制行）】\n[[{"text":"按钮1","url":"https://a.com"},{"text":"按钮2","url":"https://b.com"}],[{"text":"按钮3","url":"https://c.com"}]]\n\n📌 当前值：\n${escapeHtml(JSON.stringify(current))}\n\n💡 示例：\n${escapeHtml(example)}\n\n📝 请直接发送上面任一种格式的内容（发送后立即生效）：\n或点「← 返回菜单」取消操作。`;
+    } else if (cfg.type === 'premium_emoji') {
+      help = `🌟 设置Premium自定义表情+替代文字\n\n📋 使用步骤：\n1️⃣ 在 Telegram 😀 Emoji 面板选你要的 Premium 表情（比如 Flags 那个盾牌），把它当作文字发到任意聊天\n2️⃣ 长按那条消息 → 转发 → 选 @RawDataBot\n3️⃣ 在 RawDataBot 返回的 JSON 里找：\n   entities[...]\n     └ type: "custom_emoji"\n     └ custom_emoji_id: "1234567890abcdef"  ← 复制这串数字\n4️⃣ 按「custom_emoji_id|替代文字」格式发出来（| 前面是那串 id，| 后面是老客户端降级显示的 emoji ）\n\n📝 正确格式示例：\n${escapeHtml(example)}\n\n📌 当前值：\n${escapeHtml(JSON.stringify(current))}\n\n请直接发送要设置的新值（格式：id|文字），或点「← 返回菜单」取消：`;
+    } else if (cfg.key === 'welcome_message') {
+      help = `✉️ 设置 ${cfg.name}\n\n💡 提示（非常重要）：\n  • 第一行会显示成 🔒 标题（放在引用框外面）\n  • 从第二行开始，所有内容都会放在下面的引用矩形框里！\n  • 你要的【只引用正文那段】，就像下面这样写：\n\n专属会话已建立\n请直接发送需要咨询的文字、图片、文件或其他内容，客服人员收到后会尽快回复。\n\n📌 上面的效果就是：\n🔒 专属会话已建立\n╭──────────────────────────────────╮\n│ 请直接发送需要咨询的文字、...  │\n╰──────────────────────────────────╯\n\n📌 当前值：\n${escapeHtml(JSON.stringify(current))}\n\n💡 示例：\n${escapeHtml(example)}\n\n请直接发送新内容（用 \\n 表示换行，或直接 Enter 换行都行），或点「← 返回菜单」取消：`;
+    } else if (cfg.key === 'welcome_image_url') {
+      help = `🖼️ 设置 ${cfg.name}\n\n💡 正确格式要求：\n1️⃣ 必须是公网 https:// 开头（不能 http:// / 内网 / localhost）\n2️⃣ 必须是直链到图片文件本身（后缀 .png / .jpg / .jpeg / .webp / .gif）\n3️⃣ 不能是网页！比如百度网盘 / 图床相册页都是错的\n\n✅ 最简单获取方法：\n   → 打开 https://telegra.ph （不用注册）\n   → 正文里粘贴/上传你的图\n   → 图加载完成后，右键那图 → "复制图片地址" 粘贴到这里\n\n❌ 错误示例：\n   https://pan.baidu.com/xxxxx （网盘页，不是图！）\n   http://localhost/a.png （本地地址，公网看不到）\n\n📌 当前值：\n${escapeHtml(JSON.stringify(current))}\n\n💡 示例：\n${escapeHtml(example)}\n\n请直接发送新的 URL，或点「← 返回菜单」取消（留空就是不显示欢迎图）：`;
+    } else if (cfg.key === 'welcome_sticker_id') {
+      help = `🐻 设置 ${cfg.name}\n\n💡 贴纸 vs Premium 表情（非常重要！别搞混）：\n  🐻 Sticker 贴纸（独立大的整张图，动态）→ 填这里，用 sticker.file_id\n  😀 Emoji 面板里的 Premium 小图标（嵌在文字里）→ 用「🌟 高级表情(Premium)」按钮\n\n📋 获取 file_id 步骤：\n1️⃣ 聊天输入框点 🐻 贴纸图标（不是 😀！），选一个动态贴纸，发送\n2️⃣ 长按那条贴纸消息 → 转发 → 选 @RawDataBot\n3️⃣ 在返回的 JSON 里找 sticker.file_id（CAAC... 开头的一长串）复制\n\n📌 当前值：\n${escapeHtml(JSON.stringify(current))}\n\n💡 示例：\n${escapeHtml(example)}\n\n请直接发送 file_id（CAAC... 长串），或点「← 返回菜单」取消：`;
+    } else {
+      help = `✏️ 设置 ${cfg.name}\n\n📌 当前值：\n${escapeHtml(JSON.stringify(current))}\n\n💡 示例：\n${escapeHtml(example)}\n\n请直接发送要设置的新值，或点「← 返回菜单」取消：`;
     }
     try {
       await ctx.editMessageText(help, { reply_markup: buildCancelKeyboard(), parse_mode: 'HTML' });
@@ -383,10 +390,10 @@ async function handleTempBroadcastCallback(ctx, action, adminId) {
   } else if (action === 'tmp_btn_set') {
     setAdminMode(adminId, 'tmp_btn_set_text', { returnTo: 'broadcast_buttons_page' });
     await ctx.answerCallbackQuery();
-    const ctrl = buildBroadcastButtonsControls(adminId, currentButtons);
     try {
-      await ctx.editMessageText(`➕ 请发送按钮定义，格式：一行一个，每行是 按钮文字|https://链接\n\n示例：\n按钮1|https://a.com\n按钮2|https://b.com\n\n或者直接发送 JSON 数组，例如：\n[{"text":"按钮","url":"https://example.com"}]`, {
+      await ctx.editMessageText(`➕ 临时修改【本次广播】的按钮（只生效这一次，不会影响永久配置）\n\n✅ 支持 2 种格式，任选其一：\n\n【写法1 —— 最简单】一行一个按钮：\n按钮文字|https://链接1\n按钮文字2|https://链接2\n\n【想要一行放多个按钮？】写在同一行，中间用 空格|空格 隔开：\n按钮1|https://a.com | 按钮2|https://b.com\n\n【想要换行（按钮下一行）？】空一行 或 写一行 --- ：\n按钮1|a.com\n按钮2|b.com\n---\n按钮3|c.com\n\n【写法2 —— JSON 标准格式】\n[[{"text":"按钮1","url":"https://a.com"}]]\n\n📝 请直接发送按钮内容，发送后立即回到配置页。`, {
         reply_markup: buildCancelKeyboard(),
+        parse_mode: 'HTML',
       });
     } catch {}
     return { handled: true };
@@ -549,7 +556,7 @@ bot.on('message', async (ctx, next) => {
       const type = state.data && state.data.type ? state.data.type : 'text';
       let value = ctx.message.text || '';
       if (type === 'buttons_json') {
-        value = parseButtonsArray(ctx.message.text) || [];
+        value = parseButtonsFriendly(ctx.message.text) || [];
       } else if (type === 'premium_emoji') {
         const raw = ctx.message.text || '';
         const idx = raw.indexOf('|');
