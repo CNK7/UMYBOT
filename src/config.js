@@ -20,6 +20,10 @@ const config = {
   welcomeStickerId: process.env.WELCOME_STICKER_ID || '',
   welcomePremiumEmojiId: process.env.WELCOME_PREMIUM_EMOJI_ID || '',
   welcomePremiumEmojiText: process.env.WELCOME_PREMIUM_EMOJI_TEXT || '✨',
+  statusCheckEmojiId: process.env.STATUS_CHECK_EMOJI_ID || '',
+  statusGlobeEmojiId: process.env.STATUS_GLOBE_EMOJI_ID || '',
+  statusBellEmojiId: process.env.STATUS_BELL_EMOJI_ID || '',
+  quoteLockEmojiId: process.env.QUOTE_LOCK_EMOJI_ID || '',
 
   inlineButtons: parseButtons(process.env.INLINE_BUTTONS),
   broadcastButtons: parseButtons(process.env.BROADCAST_BUTTONS),

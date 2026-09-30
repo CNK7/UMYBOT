@@ -199,7 +199,11 @@ const CFG_KEYS = {
   cfg_set_status: { key: 'welcome_status', name: '欢迎消息底部状态', example: '✅ 在线接收\\n🔔 通知开启', type: 'text' },
   cfg_set_image: { key: 'welcome_image_url', name: '欢迎图片 URL', example: 'https://example.com/welcome.png', type: 'text' },
   cfg_set_sticker: { key: 'welcome_sticker_id', name: '欢迎动画贴纸 file_id', example: 'CAACAgIAAxkBAA...', type: 'text' },
-  cfg_set_premium_emoji: { key: 'welcome_premium_emoji_id', name: 'Premium自定义表情ID+文字（高级）', example: '"6170277659566676368|✨', type: 'premium_emoji' },
+  cfg_set_premium_emoji: { key: 'welcome_premium_emoji_id', name: '标题前高级表情（Premium）', example: '6170277659566676368|✨', type: 'premium_emoji' },
+  cfg_set_quote_lock: { key: 'quote_lock_emoji_id', name: '引用框🔒图标（Premium）', example: '6170277659566676368|🔒', type: 'premium_emoji' },
+  cfg_set_status_check: { key: 'status_check_emoji_id', name: '✅对号图标（Premium）', example: '6170277659566676368|✅', type: 'premium_emoji' },
+  cfg_set_status_globe: { key: 'status_globe_emoji_id', name: '🌐地球图标（Premium）', example: '6170277659566676368|🌐', type: 'premium_emoji' },
+  cfg_set_status_bell: { key: 'status_bell_emoji_id', name: '🔔铃铛图标（Premium）', example: '6170277659566676368|🔔', type: 'premium_emoji' },
   cfg_set_inline_buttons: { key: 'inline_buttons', name: '欢迎按钮（JSON数组）', example: '[{"text":"按钮","url":"https://example.com"}]', type: 'buttons_json' },
   cfg_set_broadcast_buttons: { key: 'broadcast_buttons', name: '广播按钮（JSON数组）', example: '[{"text":"点击查看","url":"https://example.com"}]', type: 'buttons_json' },
 };
@@ -249,7 +253,7 @@ bot.callbackQuery('cfg_preview', async (ctx) => {
       });
       return;
     } catch (e) {
-      await ctx.reply(`❌ 欢迎图片发送失败: ${escapeHtml(e.message)}（可能 URL 无效）`);
+      await ctx.reply(`❌ 欢迎图片发送失败: ${e.message || String(e)}（可能 URL 无效）\n\n💡 提示：\n1. 必须是公网可直接访问的 URL（不能是本地局域网/内网 IP，不能是 localhost）\n2. 必须是公开图片，不需要登录就能打开\n3. 必须是直链到图片本身（.png/.jpg/.webp 结尾），不能是百度网盘/相册页面这种网页\n4. 最简单方法：把图上传到 https://telegra.ph 或 https://postimages.org ，上传完右键「复制图片地址」贴到这里`);
     }
   }
   await ctx.reply(welcomeText, { parse_mode: 'HTML', reply_markup: replyMarkup });
@@ -257,7 +261,7 @@ bot.callbackQuery('cfg_preview', async (ctx) => {
 
 bot.callbackQuery('cfg_reset_all', async (ctx) => {
   if (!isAdmin(ctx.from?.id)) { await ctx.answerCallbackQuery('无权限'); return; }
-  const keysToRemove = ['welcome_title','welcome_message','welcome_status','welcome_image_url','welcome_sticker_id','welcome_premium_emoji_id','welcome_premium_emoji_text','inline_buttons','broadcast_buttons'];
+  const keysToRemove = ['welcome_title','welcome_message','welcome_status','welcome_image_url','welcome_sticker_id','welcome_premium_emoji_id','welcome_premium_emoji_text','status_check_emoji_id','status_globe_emoji_id','status_bell_emoji_id','quote_lock_emoji_id','inline_buttons','broadcast_buttons'];
   for (const k of keysToRemove) setSetting(k, '');
   await ctx.answerCallbackQuery('✅ 已恢复默认（使用 Vercel 环境变量配置）');
   const userCount = getUserCount();
@@ -472,16 +476,37 @@ function parseButtonsFriendly(rawText) {
   if (text.startsWith('[')) {
     return parseButtonsArray(text);
   }
-  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-  const out = [];
-  for (const line of lines) {
-    const idx = line.indexOf('|');
+  const lines = text.split('\n').map(l => l.trimEnd());
+  const rows = [];
+  let curRow = [];
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (line === '' || /^[-—=]{3,}$/.test(line)) {
+      if (curRow.length > 0) { rows.push(curRow); curRow = []; }
+      continue;
+    }
+    const oneLinePairs = line.split(/\s+｜\s+|\s+\|\s+/).map(s => s.trim()).filter(Boolean);
+    if (oneLinePairs.length > 1 && oneLinePairs.every(p => /\|/.test(p) || /｜/.test(p))) {
+      for (const pair of oneLinePairs) {
+        const sep = pair.indexOf('｜') >= 0 ? '｜' : '|';
+        const i2 = pair.indexOf(sep);
+        if (i2 < 0) continue;
+        const t = pair.slice(0, i2).trim();
+        const url = pair.slice(i2 + 1).trim();
+        if (t && url) curRow.push({ text: t, url });
+      }
+      rows.push(curRow);
+      curRow = [];
+      continue;
+    }
+    const idx = line.indexOf('|') >= 0 ? line.indexOf('|') : line.indexOf('｜');
     if (idx < 0) continue;
     const t = line.slice(0, idx).trim();
     const url = line.slice(idx + 1).trim();
-    if (t && url) out.push({ text: t, url });
+    if (t && url) curRow.push({ text: t, url });
   }
-  return out;
+  if (curRow.length > 0) rows.push(curRow);
+  return rows;
 }
 
 bot.on('message', async (ctx, next) => {

@@ -59,47 +59,91 @@ function getEffectiveWelcomePremiumEmojiId() {
 function getEffectiveWelcomePremiumEmojiText() {
   return getSetting('welcome_premium_emoji_text', config.welcomePremiumEmojiText || '✨');
 }
+function getEffectiveStatusCheckEmojiId() { return getSetting('status_check_emoji_id', config.statusCheckEmojiId || ''); }
+function getEffectiveStatusGlobeEmojiId() { return getSetting('status_globe_emoji_id', config.statusGlobeEmojiId || ''); }
+function getEffectiveStatusBellEmojiId() { return getSetting('status_bell_emoji_id', config.statusBellEmojiId || ''); }
+function getEffectiveQuoteLockEmojiId() { return getSetting('quote_lock_emoji_id', config.quoteLockEmojiId || ''); }
+function renderMaybePremium(emojiId, fallback) {
+  if (emojiId) return `<tg-emoji emoji-id="${emojiId}">${fallback}</tg-emoji>`;
+  return fallback;
+}
 
+function isBtnRowLike(v) {
+  return Array.isArray(v) && v.every(x => x && typeof x === 'object' && ('text' in x));
+}
+function normalizeButtonsLayout(buttons) {
+  if (!buttons || buttons.length === 0) return [];
+  if (isBtnRowLike(buttons)) return buttons;
+  if (Array.isArray(buttons) && buttons.every(b => !('text' in b))) return buttons.map(r => Array.isArray(r) ? r : []);
+  const out = [];
+  let row = [];
+  for (const btn of buttons) {
+    if (btn === null || btn === undefined) continue;
+    if (typeof btn === 'string' && (btn.trim() === '' || btn.trim() === '---' || btn.trim() === '——' || /^[-—=]{3,}$/.test(btn.trim()))) {
+      if (row.length > 0) { out.push(row); row = []; }
+      continue;
+    }
+    if (btn && btn.__rowBreak) {
+      if (row.length > 0) { out.push(row); row = []; }
+      continue;
+    }
+    if (isBtnRowLike([btn])) {
+      if (row.length > 0) { out.push(row); row = []; }
+      out.push(btn);
+      continue;
+    }
+    if (btn && ('text' in btn || 'url' in btn || 'callback_data' in btn)) {
+      row.push(btn);
+    }
+  }
+  if (row.length > 0) out.push(row);
+  return out;
+}
 function buildInlineKeyboard(buttons) {
   if (!buttons || buttons.length === 0) return undefined;
   const keyboard = new InlineKeyboard();
-  buttons.forEach((btn, idx) => {
-    if (btn.url) {
-      keyboard.url(btn.text, btn.url);
-    } else if (btn.callback_data) {
-      keyboard.text(btn.text, btn.callback_data);
-    } else if (btn.web_app) {
-      keyboard.webApp(btn.text, btn.web_app);
-    }
-    if ((idx + 1) % 2 === 0 && idx < buttons.length - 1) {
-      keyboard.row();
-    }
+  const layout = normalizeButtonsLayout(buttons);
+  layout.forEach((row, rIdx) => {
+    row.forEach(btn => {
+      if (btn.url) keyboard.url(btn.text, btn.url);
+      else if (btn.callback_data) keyboard.text(btn.text, btn.callback_data);
+      else if (btn.web_app) keyboard.webApp(btn.text, btn.web_app);
+    });
+    if (rIdx < layout.length - 1) keyboard.row();
   });
   return keyboard;
 }
 
 function stringifyButtons(buttons) {
   if (!buttons || buttons.length === 0) return '（无）';
-  return buttons.map(b => {
-    const type = b.url ? '🔗' : b.callback_data ? '⚙️' : '📱';
-    const target = b.url || b.callback_data || b.web_app || '';
-    return `${type} ${escapeHtml(b.text)} → ${escapeHtml(target)}`;
-  }).join('\n');
+  const layout = normalizeButtonsLayout(buttons);
+  const lines = [];
+  layout.forEach((row, rIdx) => {
+    row.forEach(b => {
+      const type = b.url ? '🔗' : b.callback_data ? '⚙️' : '📱';
+      const target = b.url || b.callback_data || b.web_app || '';
+      lines.push(`${type} 第${rIdx + 1}行: ${escapeHtml(b.text)} → ${escapeHtml(target)}`);
+    });
+  });
+  return lines.join('\n');
 }
 
 function buildQuoteBlock(title, bodyEmojiPrefix, bodyLinesRaw) {
   const q = [];
-  const prefix = '▎';
-  q.push(`${prefix} ${bodyEmojiPrefix} ${title || ''}`);
+  const leftBar = '▍';
+  const lockIcon = renderMaybePremium(getEffectiveQuoteLockEmojiId(), bodyEmojiPrefix || '🔒');
+  q.push(`${leftBar}${lockIcon} ${escapeHtml(title || '')}\t\t\t\t\t」`);
+  q.push(`${leftBar}`);
   if (bodyLinesRaw && bodyLinesRaw.length > 0) {
     for (const line of bodyLinesRaw) {
       if (line) {
-        q.push(`${prefix}  ${line}`);
+        q.push(`${leftBar}  ${line}`);
       } else {
-        q.push(`${prefix}`);
+        q.push(`${leftBar}`);
       }
     }
   }
+  q.push(`${leftBar}`);
   return q.join('\n');
 }
 
@@ -107,28 +151,35 @@ function buildWelcomeText(ctx) {
   const userName = escapeHtml(ctx.from?.first_name || '朋友');
   const title = unescapeNewlines(escapeHtml(getEffectiveWelcomeTitle()));
   const msg = unescapeNewlines(getEffectiveWelcomeMessage());
-  const status = unescapeNewlines(getEffectiveWelcomeStatus());
+  const statusRaw = unescapeNewlines(getEffectiveWelcomeStatus());
   const premiumEmojiId = getEffectiveWelcomePremiumEmojiId();
   const premiumEmojiText = getEffectiveWelcomePremiumEmojiText() || '✨';
 
   const lines = [];
-  if (premiumEmojiId) {
-    lines.push(`<tg-emoji emoji-id="${premiumEmojiId}">${premiumEmojiText}</tg-emoji> ${title}，${userName}`);
-  } else {
-    lines.push(`${premiumEmojiText} ${title}，${userName}`);
-  }
+  const prefixIcon = renderMaybePremium(premiumEmojiId, premiumEmojiText);
+  const needComma = /[，。！？,.!?]$/.test(title) ? '' : '，';
+  lines.push(`${prefixIcon} ${title}${needComma}${userName}`);
   lines.push('');
 
   if (msg) {
     const msgLines = msg.split('\n');
     const firstLine = msgLines[0] || '';
-    const rest = msgLines.slice(1);
+    const rest = msgLines.slice(1).map(l => escapeHtml(l));
     lines.push(buildQuoteBlock(firstLine, '🔒', rest));
     lines.push('');
   }
 
-  if (status) {
-    lines.push(status);
+  if (statusRaw) {
+    const checkIcon = renderMaybePremium(getEffectiveStatusCheckEmojiId(), '✅');
+    const globeIcon = renderMaybePremium(getEffectiveStatusGlobeEmojiId(), '🌐');
+    const bellIcon = renderMaybePremium(getEffectiveStatusBellEmojiId(), '🔔');
+    const statLines = statusRaw.split('\n').map(x => {
+      if (/^(✅|✅ )?当前状态/.test(x)) return x.replace(/^✅\s*/, checkIcon + ' ');
+      if (/^(🌐|🌐 )?会话通道/.test(x)) return x.replace(/^🌐\s*/, globeIcon + ' ');
+      if (/^(🔔|🔔 )?消息通知/.test(x)) return x.replace(/^🔔\s*/, bellIcon + ' ');
+      return x;
+    });
+    lines.push(statLines.join('\n'));
   }
 
   return lines.join('\n');
@@ -170,6 +221,12 @@ function buildSettingsMenu() {
     .row()
     .text('🐻 动画贴纸(Sticker)', 'cfg_set_sticker')
     .text('🌟 高级表情(Premium)', 'cfg_set_premium_emoji')
+    .row()
+    .text('🔒 引用框锁头', 'cfg_set_quote_lock')
+    .text('✅ 状态对号', 'cfg_set_status_check')
+    .row()
+    .text('🌐 状态地球', 'cfg_set_status_globe')
+    .text('🔔 状态铃铛', 'cfg_set_status_bell')
     .row()
     .text('🔘 欢迎按钮', 'cfg_set_inline_buttons')
     .text('🔘 广播按钮', 'cfg_set_broadcast_buttons')
@@ -221,4 +278,9 @@ module.exports = {
   getEffectiveWelcomeStickerId,
   getEffectiveWelcomePremiumEmojiId,
   getEffectiveWelcomePremiumEmojiText,
+  getEffectiveStatusCheckEmojiId,
+  getEffectiveStatusGlobeEmojiId,
+  getEffectiveStatusBellEmojiId,
+  getEffectiveQuoteLockEmojiId,
+  renderMaybePremium,
 };
