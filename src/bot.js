@@ -171,7 +171,6 @@ bot.command('help', async (ctx) => {
     lines.push('  • /menu - 打开管理员控制台');
     lines.push('  • 收到转发消息后，直接"回复"那条消息，内容会送给用户');
     lines.push('  • 📢 广播文字/图片 - 向所有用户群发');
-    lines.push('  • 📌 置顶消息 - 在当前聊天发送并置顶一条消息');
     lines.push('  • /cancel - 取消广播等待确认操作');
     lines.push('');
   }
@@ -185,42 +184,60 @@ bot.command('cancel', async (ctx) => {
   });
 });
 
+async function safeAnswerAlert(ctx, text, showAlert = false) {
+  try { await ctx.answerCallbackQuery(showAlert ? { text, show_alert: true } : (text || undefined)); } catch (_) {}
+}
+
 bot.callbackQuery('back_to_menu', async (ctx) => {
-  if (!isAdmin(ctx.from?.id)) { await ctx.answerCallbackQuery('无权限'); return; }
-  clearAdminMode(ctx.from.id);
-  try { clearTempBroadcast(String(ctx.from.id)); } catch (_) {}
-  await ctx.answerCallbackQuery();
-  let userCount = 0;
-  try { userCount = getUserCount(); } catch (_) {}
-  const replyText = `🎛️ 管理员控制台\n\n当前用户数：${userCount} 人${isVercel ? '\n\n⚠️ 当前环境：Vercel Serverless\n冷启动数据会重置，用户量大请改用 aapanel 部署。' : ''}\n\n⚙️ 配置管理 → 直接在 Telegram 改欢迎消息、按钮，不用去 Vercel 重部署！`;
   try {
-    await ctx.editMessageText(replyText, { reply_markup: buildAdminBroadcastKeyboard(userCount) });
-  } catch {
-    try { await ctx.reply(replyText, { reply_markup: buildAdminBroadcastKeyboard(userCount) }); } catch {}
+    if (!isAdmin(ctx.from?.id)) { await safeAnswerAlert(ctx, '无权限', true); return; }
+    clearAdminMode(ctx.from.id);
+    try { clearTempBroadcast(String(ctx.from.id)); } catch (_) {}
+    await safeAnswerAlert(ctx);
+    let userCount = 0;
+    try { userCount = getUserCount(); } catch (_) {}
+    const replyText = `🎛️ 管理员控制台\n\n当前用户数：${userCount} 人${isVercel ? '\n\n⚠️ 当前环境：Vercel Serverless\n冷启动数据会重置，用户量大请改用 aapanel 部署。' : ''}\n\n⚙️ 配置管理 → 直接在 Telegram 改欢迎消息、按钮，不用去 Vercel 重部署！`;
+    try {
+      await ctx.editMessageText(replyText, { reply_markup: buildAdminBroadcastKeyboard(userCount) });
+    } catch (e1) {
+      try { await ctx.reply(replyText, { reply_markup: buildAdminBroadcastKeyboard(userCount) }); }
+      catch (e2) { await safeAnswerAlert(ctx, '消息发送失败，请发送 /menu 重新打开', true); }
+    }
+  } catch (e) {
+    console.error('[back_to_menu 异常]', e && e.stack ? e.stack : e);
+    await safeAnswerAlert(ctx, '操作出错！请发送 /menu 重新打开菜单', true);
   }
 });
 
 bot.callbackQuery('settings_menu', async (ctx) => {
-  if (!isAdmin(ctx.from?.id)) { await ctx.answerCallbackQuery('无权限'); return; }
-  clearAdminMode(ctx.from.id);
-  await ctx.answerCallbackQuery();
-  const settings = getAllSettings();
-  const settingsList = Object.keys(settings).length === 0 ? '（空，使用 Vercel 环境变量默认配置）' :
-    Object.entries(settings).map(([k,v]) => {
-      const val = typeof v === 'string' && v.length > 40 ? v.slice(0, 40) + '...' : JSON.stringify(v);
-      return `  • ${escapeHtml(k)} = ${escapeHtml(String(val))}`;
-    }).join('\n');
-  const help = `⚙️ 配置管理（直接在 Telegram 改，不用去 Vercel 重部署！）\n\n📦 当前持久化的设置：\n${settingsList}\n\n💡 改完之后可以点「👁️ 预览欢迎消息」立即看效果。\n⚠️ 注意：如果部署在 Vercel，冷启动后存储会重置，重要配置请同时在 Vercel Environment Variables 里也填一下（双保险）。\n\n你想改哪个？点下面按钮：`;
   try {
-    await ctx.editMessageText(help, { reply_markup: buildSettingsMenu(), parse_mode: 'HTML' });
-  } catch {
-    try { await ctx.reply(help, { reply_markup: buildSettingsMenu(), parse_mode: 'HTML' }); } catch {}
+    if (!isAdmin(ctx.from?.id)) { await safeAnswerAlert(ctx, '无权限', true); return; }
+    clearAdminMode(ctx.from.id);
+    await safeAnswerAlert(ctx);
+    const settings = getAllSettings();
+    const settingsList = Object.keys(settings).length === 0 ? '（空，使用 Vercel 环境变量默认配置）' :
+      Object.entries(settings).map(([k,v]) => {
+        const val = typeof v === 'string' && v.length > 40 ? v.slice(0, 40) + '...' : JSON.stringify(v);
+        return `  • ${escapeHtml(k)} = ${escapeHtml(String(val))}`;
+      }).join('\n');
+    const help = `⚙️ 配置管理（直接在 Telegram 改，不用去 Vercel 重部署！）\n\n📦 当前持久化的设置：\n${settingsList}\n\n💡 改完之后可以点「👁️ 预览欢迎消息」立即看效果。\n⚠️ 注意：如果部署在 Vercel，冷启动后存储会重置，重要配置请同时在 Vercel Environment Variables 里也填一下（双保险）。\n\n你想改哪个？点下面按钮：`;
+    try {
+      await ctx.editMessageText(help, { reply_markup: buildSettingsMenu(), parse_mode: 'HTML' });
+    } catch (e1) {
+      try { await ctx.reply(help, { reply_markup: buildSettingsMenu(), parse_mode: 'HTML' }); }
+      catch (e2) { await safeAnswerAlert(ctx, '打开失败，请发送 /menu 重试', true); }
+    }
+  } catch (e) {
+    console.error('[settings_menu 异常]', e && e.stack ? e.stack : e);
+    await safeAnswerAlert(ctx, '操作出错！请发送 /menu 重新打开菜单', true);
   }
 });
 
 const PREMIUM_TEXT_COMPANION = {
   welcome_premium_emoji_id: 'welcome_premium_emoji_text',
   quote_lock_emoji_id: null,
+  heart_emoji_id: null,
+  footer_globe_emoji_id: null,
   status_check_emoji_id: null,
   status_globe_emoji_id: null,
   status_bell_emoji_id: null,
@@ -228,291 +245,341 @@ const PREMIUM_TEXT_COMPANION = {
 
 const CFG_KEYS = {
   cfg_set_title: { key: 'welcome_title', name: '欢迎消息标题', example: '你好，欢迎咨询', type: 'text' },
-  cfg_set_message: { key: 'welcome_message', name: '欢迎消息主内容', example: '专属会话已建立\\n\\n请直接发消息咨询', type: 'text' },
-  cfg_set_status: { key: 'welcome_status', name: '欢迎消息底部状态', example: '✅ 在线接收\\n🔔 通知开启', type: 'text' },
+  cfg_set_message: { key: 'welcome_message', name: '欢迎消息主内容', example: '🔒 专属会话已建立\\n\\n💗请直接发送需要咨询的文字...', type: 'text' },
+  cfg_set_status: { key: 'welcome_status', name: '欢迎消息底部状态', example: '✅ 当前状态：在线接收\\n🌐 会话通道：已连接\\n🔔 消息通知：已开启', type: 'text' },
+  cfg_set_footer: { key: 'welcome_footer', name: '底部制作者文字', example: '🌍本机器人由悠米一手制作： @ummix', type: 'text' },
   cfg_set_image: { key: 'welcome_image_url', name: '欢迎图片 URL', example: 'https://example.com/welcome.png', type: 'text' },
   cfg_set_sticker: { key: 'welcome_sticker_id', name: '欢迎动画贴纸 file_id', example: 'CAACAgIAAxkBAA...', type: 'text' },
   cfg_set_premium_emoji: { key: 'welcome_premium_emoji_id', name: '标题前✨（Premium）', example: '6170277659566676368|✨', type: 'premium_emoji' },
-  cfg_set_quote_lock: { key: 'quote_lock_emoji_id', name: '🔒锁头图标（Premium）', example: '6170277659566676368|🔒', type: 'premium_emoji' },
+  cfg_set_quote_lock: { key: 'quote_lock_emoji_id', name: '🔒锁头（Premium）', example: '6170277659566676368|🔒', type: 'premium_emoji' },
   cfg_set_heart: { key: 'heart_emoji_id', name: '💗爱心（Premium）', example: '6170277659566676368|💗', type: 'premium_emoji' },
+  cfg_set_footer_globe: { key: 'footer_globe_emoji_id', name: '🌍底部制作者地球（Premium）', example: '6170277659566676368|🌍', type: 'premium_emoji' },
   cfg_set_status_check: { key: 'status_check_emoji_id', name: '✅状态对号（Premium）', example: '6170277659566676368|✅', type: 'premium_emoji' },
-  cfg_set_status_globe: { key: 'status_globe_emoji_id', name: '🌐地球（Premium）', example: '6170277659566676368|🌐', type: 'premium_emoji' },
-  cfg_set_status_bell: { key: 'status_bell_emoji_id', name: '🔔铃铛（Premium）', example: '6170277659566676368|🔔', type: 'premium_emoji' },
+  cfg_set_status_globe: { key: 'status_globe_emoji_id', name: '🌐状态地球（Premium）', example: '6170277659566676368|🌐', type: 'premium_emoji' },
+  cfg_set_status_bell: { key: 'status_bell_emoji_id', name: '🔔状态铃铛（Premium）', example: '6170277659566676368|🔔', type: 'premium_emoji' },
   cfg_set_inline_buttons: { key: 'inline_buttons', name: '欢迎底部按钮', example: '按钮1|https://a.com', type: 'buttons_json' },
   cfg_set_broadcast_buttons: { key: 'broadcast_buttons', name: '广播默认按钮', example: '点击查看|https://example.com', type: 'buttons_json' },
 };
 
 for (const [cbId, cfg] of Object.entries(CFG_KEYS)) {
   bot.callbackQuery(cbId, async (ctx) => {
-    if (!isAdmin(ctx.from?.id)) { await ctx.answerCallbackQuery('无权限'); return; }
-    setAdminMode(ctx.from.id, 'cfg_set_' + cfg.key, { type: cfg.type });
-    await ctx.answerCallbackQuery();
-    const current = getSetting(cfg.key, '(空)');
-    const example = cfg.example;
-    let help = '';
-    if (cfg.type === 'buttons_json') {
-      help = `🔘 设置 ${cfg.name}\n\n✅ 两种写法任选一种（都支持！）：\n\n【写法1 —— 推荐，简单，一行一个按钮】\n按钮文字1|https://链接1\n按钮文字2|https://链接2\n\n【想要一行放多个按钮？】写在同一行，中间用 空格|空格 隔开：\n按钮1|https://a.com | 按钮2|https://b.com\n\n【想要手动换行？】空一行 或 写一行 --- ：\n按钮1|a.com\n按钮2|b.com\n\n按钮3|c.com\n\n【写法2 —— 标准JSON二维数组（精确控制行）】\n[[{"text":"按钮1","url":"https://a.com"},{"text":"按钮2","url":"https://b.com"}],[{"text":"按钮3","url":"https://c.com"}]]\n\n📌 当前值：\n${escapeHtml(JSON.stringify(current))}\n\n💡 示例：\n${escapeHtml(example)}\n\n📝 请直接发送上面任一种格式的内容（发送后立即生效）：\n或点「← 返回菜单」取消操作。`;
-    } else if (cfg.type === 'premium_emoji') {
-      const companionKey = PREMIUM_TEXT_COMPANION[cfg.key] || null;
-      help = `🌟 设置 ${cfg.name}\n\n📋 拿 custom_emoji_id 的步骤：\n1️⃣ 😀 Emoji 面板选一个 Premium 表情当文字发出去\n2️⃣ 长按那条消息 → 转发 → @RawDataBot\n3️⃣ 找 entities[].type = "custom_emoji" 下的 custom_emoji_id\n4️⃣ 按格式发：custom_emoji_id|降级emoji（｜前面是id，｜后面是降级显示的emoji）\n\n📝 正确示例：\n${escapeHtml(example)}\n\n📌 当前值：\n${escapeHtml(JSON.stringify(current))}\n\n请直接发送新值（id|emoji），或点「← 返回菜单」取消：`;
-    } else if (cfg.key === 'welcome_message') {
-      help = `✉️ 设置 ${cfg.name}\n\n📌 当前值：\n${escapeHtml(JSON.stringify(current))}\n\n💡 示例：\n${escapeHtml(example)}\n\n请直接发送新内容（Enter 换行即可），或点「← 返回菜单」取消：`;
-    } else if (cfg.key === 'welcome_image_url') {
-      help = `🖼️ 设置 ${cfg.name}\n\n💡 正确格式：\n1️⃣ 公网 https:// 开头（不能 http/内网/localhost）\n2️⃣ 直链到图片文件本身（.png/.jpg/.webp/.gif 结尾）\n3️⃣ 不是网页！网盘/相册分享页都是错的\n\n✅ 最简单拿直链：打开 https://telegra.ph → 粘图 → 右键"复制图片地址"\n\n📌 当前值：\n${escapeHtml(JSON.stringify(current))}\n\n💡 示例：\n${escapeHtml(example)}\n\n请发送 URL（留空取消欢迎图），或点「← 返回菜单」取消：`;
-    } else if (cfg.key === 'welcome_sticker_id') {
-      help = `🐻 设置 ${cfg.name}（🐻贴纸面板的独立动态贴纸，不是Premium emoji！）\n\n📋 拿 file_id：\n1️⃣ 点输入框🐻贴纸图标，发一张动态贴纸\n2️⃣ 长按贴纸 → 转发 → @RawDataBot\n3️⃣ 找 sticker.file_id（CAAC... 开头长串）\n\n📌 当前值：\n${escapeHtml(JSON.stringify(current))}\n\n💡 示例：\n${escapeHtml(example)}\n\n请发送 file_id，或点「← 返回菜单」取消：`;
-    } else {
-      help = `✏️ 设置 ${cfg.name}\n\n📌 当前值：\n${escapeHtml(JSON.stringify(current))}\n\n💡 示例：\n${escapeHtml(example)}\n\n请直接发送要设置的新值，或点「← 返回菜单」取消：`;
-    }
     try {
-      await ctx.editMessageText(help, { reply_markup: buildCancelKeyboard(), parse_mode: 'HTML' });
-    } catch {
-      try { await ctx.reply(help, { reply_markup: buildCancelKeyboard(), parse_mode: 'HTML' }); } catch {}
+      if (!isAdmin(ctx.from?.id)) { await safeAnswerAlert(ctx, '无权限', true); return; }
+      setAdminMode(ctx.from.id, 'cfg_set_' + cfg.key, { type: cfg.type });
+      await safeAnswerAlert(ctx);
+      const current = getSetting(cfg.key, '(空)');
+      const example = cfg.example;
+      let help = '';
+      if (cfg.type === 'buttons_json') {
+        help = `🔘 设置 ${cfg.name}\n\n✅ 两种写法任选一种（都支持！）：\n\n【写法1 —— 推荐，简单，一行一个按钮】\n按钮文字1|https://链接1\n按钮文字2|https://链接2\n\n【想要一行放多个按钮？】写在同一行，中间用 空格|空格 隔开：\n按钮1|https://a.com | 按钮2|https://b.com\n\n【想要手动换行？】空一行 或 写一行 --- ：\n按钮1|a.com\n按钮2|b.com\n\n按钮3|c.com\n\n【写法2 —— 标准JSON二维数组（精确控制行）】\n[[{"text":"按钮1","url":"https://a.com"},{"text":"按钮2","url":"https://b.com"}],[{"text":"按钮3","url":"https://c.com"}]]\n\n📌 当前值：\n${escapeHtml(JSON.stringify(current))}\n\n💡 示例：\n${escapeHtml(example)}\n\n📝 请直接发送上面任一种格式的内容（发送后立即生效）：\n或点「← 返回菜单」取消操作。`;
+      } else if (cfg.type === 'premium_emoji') {
+        const companionKey = PREMIUM_TEXT_COMPANION[cfg.key] || null;
+        help = `🌟 设置 ${cfg.name}\n\n📋 拿 custom_emoji_id 的步骤：\n1️⃣ 😀 Emoji 面板选一个 Premium 表情当文字发出去\n2️⃣ 长按那条消息 → 转发 → @RawDataBot\n3️⃣ 找 entities[].type = "custom_emoji" 下的 custom_emoji_id\n4️⃣ 按格式发：custom_emoji_id|降级emoji（｜前面是id，｜后面是降级显示的emoji）\n\n📝 正确示例：\n${escapeHtml(example)}\n\n📌 当前值：\n${escapeHtml(JSON.stringify(current))}\n\n请直接发送新值（id|emoji），或点「← 返回菜单」取消：`;
+      } else if (cfg.key === 'welcome_message') {
+        help = `✉️ 设置 ${cfg.name}\n\n📌 当前值：\n${escapeHtml(JSON.stringify(current))}\n\n💡 示例：\n${escapeHtml(example)}\n\n请直接发送新内容（Enter 换行即可），或点「← 返回菜单」取消：`;
+      } else if (cfg.key === 'welcome_image_url') {
+        help = `🖼️ 设置 ${cfg.name}\n\n💡 正确格式：\n1️⃣ 公网 https:// 开头（不能 http/内网/localhost）\n2️⃣ 直链到图片文件本身（.png/.jpg/.webp/.gif 结尾）\n3️⃣ 不是网页！网盘/相册分享页都是错的\n\n✅ 最简单拿直链：打开 https://telegra.ph → 粘图 → 右键"复制图片地址"\n\n📌 当前值：\n${escapeHtml(JSON.stringify(current))}\n\n💡 示例：\n${escapeHtml(example)}\n\n请发送 URL（留空取消欢迎图），或点「← 返回菜单」取消：`;
+      } else if (cfg.key === 'welcome_sticker_id') {
+        help = `🐻 设置 ${cfg.name}（🐻贴纸面板的独立动态贴纸，不是Premium emoji！）\n\n📋 拿 file_id：\n1️⃣ 点输入框🐻贴纸图标，发一张动态贴纸\n2️⃣ 长按贴纸 → 转发 → @RawDataBot\n3️⃣ 找 sticker.file_id（CAAC... 开头长串）\n\n📌 当前值：\n${escapeHtml(JSON.stringify(current))}\n\n💡 示例：\n${escapeHtml(example)}\n\n请发送 file_id，或点「← 返回菜单」取消：`;
+      } else {
+        help = `✏️ 设置 ${cfg.name}\n\n📌 当前值：\n${escapeHtml(JSON.stringify(current))}\n\n💡 示例：\n${escapeHtml(example)}\n\n请直接发送要设置的新值，或点「← 返回菜单」取消：`;
+      }
+      try {
+        await ctx.editMessageText(help, { reply_markup: buildCancelKeyboard(), parse_mode: 'HTML' });
+      } catch (e1) {
+        try { await ctx.reply(help, { reply_markup: buildCancelKeyboard(), parse_mode: 'HTML' }); }
+        catch (e2) { await safeAnswerAlert(ctx, '设置页打开失败，请 /menu 重试', true); }
+      }
+    } catch (e) {
+      console.error(`[CFG ${cbId} 异常]`, e && e.stack ? e.stack : e);
+      await safeAnswerAlert(ctx, '操作出错！请发送 /menu 重新打开菜单', true);
     }
   });
 }
 
 bot.callbackQuery('cfg_preview', async (ctx) => {
-  if (!isAdmin(ctx.from?.id)) { await ctx.answerCallbackQuery('无权限'); return; }
-  await ctx.answerCallbackQuery();
-  try { await ctx.deleteMessage(); } catch {}
   try {
-    const welcomeText = buildWelcomeText(ctx);
-    const replyMarkup = buildInlineKeyboard(getEffectiveInlineButtons());
-    const stickerId = getEffectiveWelcomeStickerId();
-    const imageUrl = getEffectiveWelcomeImageUrl();
-    if (stickerId) {
-      try { await ctx.replyWithSticker(stickerId); } catch (e) {
-        await ctx.reply(`❌ 欢迎贴纸发送失败: ${escapeHtml(e.message)}（可能 file_id 无效）`);
+    if (!isAdmin(ctx.from?.id)) { await safeAnswerAlert(ctx, '无权限', true); return; }
+    await safeAnswerAlert(ctx);
+    try { await ctx.deleteMessage(); } catch {}
+    try {
+      const welcomeText = buildWelcomeText(ctx);
+      const replyMarkup = buildInlineKeyboard(getEffectiveInlineButtons());
+      const stickerId = getEffectiveWelcomeStickerId();
+      const imageUrl = getEffectiveWelcomeImageUrl();
+      if (stickerId) {
+        try { await ctx.replyWithSticker(stickerId); } catch (e) {
+          await ctx.reply(`❌ 欢迎贴纸发送失败: ${escapeHtml(e.message)}（可能 file_id 无效）`);
+        }
       }
-    }
-    if (imageUrl) {
-      try {
-        await ctx.replyWithPhoto(imageUrl, {
-          caption: welcomeText,
-          parse_mode: 'HTML',
-          reply_markup: replyMarkup,
-          show_caption_above_media: true,
-        });
-        return;
-      } catch (e) {
-        await ctx.reply(`❌ 欢迎图片发送失败: ${e.message || String(e)}（可能 URL 无效）\n\n💡 1.必须公网https直链到图片文件（不能是网盘/相册网页）\n2.最简单：上传到https://telegra.ph → 右键复制图片地址`);
+      if (imageUrl) {
+        try {
+          await ctx.replyWithPhoto(imageUrl, {
+            caption: welcomeText,
+            parse_mode: 'HTML',
+            reply_markup: replyMarkup,
+            show_caption_above_media: true,
+          });
+          return;
+        } catch (e) {
+          await ctx.reply(`❌ 欢迎图片发送失败: ${e.message || String(e)}（可能 URL 无效）\n\n💡 1.必须公网https直链到图片文件（不能是网盘/相册网页）\n2.最简单：上传到https://telegra.ph → 右键复制图片地址`);
+        }
       }
+      await ctx.reply(welcomeText, { parse_mode: 'HTML', reply_markup: replyMarkup });
+    } catch (err) {
+      console.error('预览失败:', err);
+      try { await ctx.reply('❌ 预览失败：' + escapeHtml(err.message || String(err))); } catch {}
     }
-    await ctx.reply(welcomeText, { parse_mode: 'HTML', reply_markup: replyMarkup });
-  } catch (err) {
-    console.error('预览失败:', err);
-    try { await ctx.reply('❌ 预览失败：' + escapeHtml(err.message || String(err))); } catch {}
+  } catch (e) {
+    console.error('[cfg_preview 异常]', e && e.stack ? e.stack : e);
+    await safeAnswerAlert(ctx, '操作出错！请发送 /menu 重新打开菜单', true);
   }
 });
 
 bot.callbackQuery('cfg_reset_all', async (ctx) => {
-  if (!isAdmin(ctx.from?.id)) { await ctx.answerCallbackQuery('无权限'); return; }
-  const keysToRemove = ['welcome_title','welcome_message','welcome_status','welcome_image_url','welcome_sticker_id','welcome_premium_emoji_id','welcome_premium_emoji_text','status_check_emoji_id','status_globe_emoji_id','status_bell_emoji_id','quote_lock_emoji_id','inline_buttons','broadcast_buttons'];
-  for (const k of keysToRemove) {
-    try { setSetting(k, ''); } catch (_) {}
-  }
-  await ctx.answerCallbackQuery('✅ 已恢复默认（使用 Vercel 环境变量配置）');
-  let userCount = 0;
-  try { userCount = getUserCount(); } catch (_) {}
   try {
-    await ctx.editMessageText(`🎛️ 管理员控制台\n\n当前用户数：${userCount} 人`, { reply_markup: buildAdminBroadcastKeyboard(userCount) });
-  } catch {
-    try { await ctx.reply(`🎛️ 管理员控制台\n\n当前用户数：${userCount} 人`, { reply_markup: buildAdminBroadcastKeyboard(userCount) }); } catch {}
+    if (!isAdmin(ctx.from?.id)) { await safeAnswerAlert(ctx, '无权限', true); return; }
+    const keysToRemove = ['welcome_title','welcome_message','welcome_status','welcome_footer','welcome_image_url','welcome_sticker_id','welcome_premium_emoji_id','welcome_premium_emoji_text','heart_emoji_id','footer_globe_emoji_id','status_check_emoji_id','status_globe_emoji_id','status_bell_emoji_id','quote_lock_emoji_id','inline_buttons','broadcast_buttons'];
+    for (const k of keysToRemove) {
+      try { setSetting(k, ''); } catch (_) {}
+    }
+    await safeAnswerAlert(ctx, '✅ 已恢复默认（使用 Vercel 环境变量配置）');
+    let userCount = 0;
+    try { userCount = getUserCount(); } catch (_) {}
+    try {
+      await ctx.editMessageText(`🎛️ 管理员控制台\n\n当前用户数：${userCount} 人`, { reply_markup: buildAdminBroadcastKeyboard(userCount) });
+    } catch (e1) {
+      try { await ctx.reply(`🎛️ 管理员控制台\n\n当前用户数：${userCount} 人`, { reply_markup: buildAdminBroadcastKeyboard(userCount) }); }
+      catch (e2) {}
+    }
+  } catch (e) {
+    console.error('[cfg_reset_all 异常]', e && e.stack ? e.stack : e);
+    await safeAnswerAlert(ctx, '操作出错！请发送 /menu 重新打开菜单', true);
   }
 });
 
 async function showBroadcastButtonsPage(ctx, modeLabel) {
-  const adminId = String(ctx.from.id);
-  const current = getEffectiveBroadcastButtons();
-  const buttonsArr = Array.isArray(current) && current.length > 0 && Array.isArray(current[0])
-    ? current
-    : parseButtonsFriendly(JSON.stringify(current)) || parseButtonsArray(JSON.stringify(current)) || [];
-  setTempBroadcast(adminId, { buttons: buttonsArr, modeLabel });
-  const ctrl = buildBroadcastButtonsControls(adminId, Array.isArray(buttonsArr) && buttonsArr.length > 0 && Array.isArray(buttonsArr[0]) ? buttonsArr.flat() : buttonsArr);
-  let userCount = 0;
-  try { userCount = getUserCount(); } catch (_) {}
-  await ctx.editMessageText(`${modeLabel}\n共 ${userCount} 位用户将收到\n\n🔘 当前广播底部按钮配置：\n${ctrl.buttonsText}\n\n✨ 临时改这一次广播的按钮（改完点 ✅ 继续发送），想永久改用「⚙️ 配置管理」。\n\n✅ 用当前按钮继续 → 下一步发送要广播的内容`, {
-    reply_markup: ctrl.keyboard,
-    parse_mode: 'HTML',
-  });
+  try {
+    const adminId = String(ctx.from.id);
+    const current = getEffectiveBroadcastButtons();
+    const buttonsArr = Array.isArray(current) && current.length > 0 && Array.isArray(current[0])
+      ? current
+      : parseButtonsFriendly(JSON.stringify(current)) || parseButtonsArray(JSON.stringify(current)) || [];
+    setTempBroadcast(adminId, { buttons: buttonsArr, modeLabel });
+    const ctrl = buildBroadcastButtonsControls(adminId, Array.isArray(buttonsArr) && buttonsArr.length > 0 && Array.isArray(buttonsArr[0]) ? buttonsArr.flat() : buttonsArr);
+    let userCount = 0;
+    try { userCount = getUserCount(); } catch (_) {}
+    try {
+      await ctx.editMessageText(`${modeLabel}\n共 ${userCount} 位用户将收到\n\n🔘 当前广播底部按钮配置：\n${ctrl.buttonsText}\n\n✨ 临时改这一次广播的按钮（改完点 ✅ 继续发送），想永久改用「⚙️ 配置管理」。\n\n✅ 用当前按钮继续 → 下一步发送要广播的内容`, {
+        reply_markup: ctrl.keyboard,
+        parse_mode: 'HTML',
+      });
+    } catch (e1) {
+      try { await ctx.reply(`${modeLabel}\n共 ${userCount} 位用户将收到`, { reply_markup: ctrl.keyboard, parse_mode: 'HTML' }); }
+      catch (e2) { await safeAnswerAlert(ctx, '打开失败，请 /menu 重试', true); }
+    }
+  } catch (e) {
+    console.error('[showBroadcastButtonsPage 异常]', e && e.stack ? e.stack : e);
+    await safeAnswerAlert(ctx, '操作出错！请发送 /menu 重新打开菜单', true);
+  }
 }
 
 bot.callbackQuery('broadcast_text', async (ctx) => {
-  if (!isAdmin(ctx.from?.id)) { await ctx.answerCallbackQuery('无权限'); return; }
-  await ctx.answerCallbackQuery();
-  let userCount = 0;
-  try { userCount = getUserCount(); } catch (_) {}
-  if (isVercel && userCount > 200) {
-    await ctx.editMessageText(`⚠️ 用户数 ${userCount} > Vercel Hobby 200 人广播上限，会超时。\n\n请改用 aapanel 部署执行大量广播。\n\n小批量测试请 /start 重置状态。`, {
-      reply_markup: buildCancelKeyboard(),
-    });
-    return;
+  try {
+    if (!isAdmin(ctx.from?.id)) { await safeAnswerAlert(ctx, '无权限', true); return; }
+    await safeAnswerAlert(ctx);
+    let userCount = 0;
+    try { userCount = getUserCount(); } catch (_) {}
+    if (isVercel && userCount > 200) {
+      try {
+        await ctx.editMessageText(`⚠️ 用户数 ${userCount} > Vercel Hobby 200 人广播上限，会超时。\n\n请改用 aapanel 部署执行大量广播。\n\n小批量测试请 /start 重置状态。`, { reply_markup: buildCancelKeyboard() });
+      } catch { await safeAnswerAlert(ctx, `用户 ${userCount} 超过Vercel上限200`, true); }
+      return;
+    }
+    setAdminMode(ctx.from.id, 'broadcast_buttons_wait', { nextMode: 'broadcast_text' });
+    await showBroadcastButtonsPage(ctx, '📢 广播文字配置');
+  } catch (e) {
+    console.error('[broadcast_text 异常]', e && e.stack ? e.stack : e);
+    await safeAnswerAlert(ctx, '操作出错！请发送 /menu 重新打开菜单', true);
   }
-  setAdminMode(ctx.from.id, 'broadcast_buttons_wait', { nextMode: 'broadcast_text' });
-  await showBroadcastButtonsPage(ctx, '📢 广播文字配置');
 });
 
 bot.callbackQuery('broadcast_photo', async (ctx) => {
-  if (!isAdmin(ctx.from?.id)) { await ctx.answerCallbackQuery('无权限'); return; }
-  await ctx.answerCallbackQuery();
-  let userCount = 0;
-  try { userCount = getUserCount(); } catch (_) {}
-  if (isVercel && userCount > 200) {
-    await ctx.editMessageText(`⚠️ 用户数 ${userCount} > Vercel 200 人上限，图广播更慢，改用 aapanel。`, {
-      reply_markup: buildCancelKeyboard(),
-    });
-    return;
+  try {
+    if (!isAdmin(ctx.from?.id)) { await safeAnswerAlert(ctx, '无权限', true); return; }
+    await safeAnswerAlert(ctx);
+    let userCount = 0;
+    try { userCount = getUserCount(); } catch (_) {}
+    if (isVercel && userCount > 200) {
+      try {
+        await ctx.editMessageText(`⚠️ 用户数 ${userCount} > Vercel 200 人上限，图广播更慢，改用 aapanel。`, { reply_markup: buildCancelKeyboard() });
+      } catch { await safeAnswerAlert(ctx, `用户 ${userCount} 超过Vercel上限200`, true); }
+      return;
+    }
+    setAdminMode(ctx.from.id, 'broadcast_buttons_wait', { nextMode: 'broadcast_photo' });
+    await showBroadcastButtonsPage(ctx, '🖼️ 图文广播配置');
+  } catch (e) {
+    console.error('[broadcast_photo 异常]', e && e.stack ? e.stack : e);
+    await safeAnswerAlert(ctx, '操作出错！请发送 /menu 重新打开菜单', true);
   }
-  setAdminMode(ctx.from.id, 'broadcast_buttons_wait', { nextMode: 'broadcast_photo' });
-  await showBroadcastButtonsPage(ctx, '🖼️ 图文广播配置');
 });
 
 bot.callbackQuery('broadcast_mixed', async (ctx) => {
-  if (!isAdmin(ctx.from?.id)) { await ctx.answerCallbackQuery('无权限'); return; }
-  await ctx.answerCallbackQuery();
-  let userCount = 0;
-  try { userCount = getUserCount(); } catch (_) {}
-  if (isVercel && userCount > 200) {
-    await ctx.editMessageText(`⚠️ 用户数 ${userCount} > Vercel 200 人上限，双条广播更慢，改用 aapanel。`, {
-      reply_markup: buildCancelKeyboard(),
-    });
-    return;
+  try {
+    if (!isAdmin(ctx.from?.id)) { await safeAnswerAlert(ctx, '无权限', true); return; }
+    await safeAnswerAlert(ctx);
+    let userCount = 0;
+    try { userCount = getUserCount(); } catch (_) {}
+    if (isVercel && userCount > 200) {
+      try {
+        await ctx.editMessageText(`⚠️ 用户数 ${userCount} > Vercel 200 人上限，双条广播更慢，改用 aapanel。`, { reply_markup: buildCancelKeyboard() });
+      } catch { await safeAnswerAlert(ctx, `用户 ${userCount} 超过Vercel上限200`, true); }
+      return;
+    }
+    setAdminMode(ctx.from.id, 'broadcast_buttons_wait', { nextMode: 'broadcast_mixed' });
+    await showBroadcastButtonsPage(ctx, '📜 文图双条广播配置');
+  } catch (e) {
+    console.error('[broadcast_mixed 异常]', e && e.stack ? e.stack : e);
+    await safeAnswerAlert(ctx, '操作出错！请发送 /menu 重新打开菜单', true);
   }
-  setAdminMode(ctx.from.id, 'broadcast_buttons_wait', { nextMode: 'broadcast_mixed' });
-  await showBroadcastButtonsPage(ctx, '📜 文图双条广播配置');
 });
 
 bot.callbackQuery('broadcast_smart', async (ctx) => {
-  if (!isAdmin(ctx.from?.id)) { await ctx.answerCallbackQuery('无权限'); return; }
-  await ctx.answerCallbackQuery();
-  let userCount = 0;
-  try { userCount = getUserCount(); } catch (_) {}
-  if (isVercel && userCount > 200) {
-    await ctx.editMessageText(`⚠️ 用户数 ${userCount} > Vercel 200 人上限，请用 aapanel。`, {
-      reply_markup: buildCancelKeyboard(),
-    });
-    return;
+  try {
+    if (!isAdmin(ctx.from?.id)) { await safeAnswerAlert(ctx, '无权限', true); return; }
+    await safeAnswerAlert(ctx);
+    let userCount = 0;
+    try { userCount = getUserCount(); } catch (_) {}
+    if (isVercel && userCount > 200) {
+      try {
+        await ctx.editMessageText(`⚠️ 用户数 ${userCount} > Vercel 200 人上限，请用 aapanel。`, { reply_markup: buildCancelKeyboard() });
+      } catch { await safeAnswerAlert(ctx, `用户 ${userCount} 超过Vercel上限200`, true); }
+      return;
+    }
+    setAdminMode(ctx.from.id, 'broadcast_buttons_wait', { nextMode: 'broadcast_smart' });
+    await showBroadcastButtonsPage(ctx, '🎯 智能广播配置');
+  } catch (e) {
+    console.error('[broadcast_smart 异常]', e && e.stack ? e.stack : e);
+    await safeAnswerAlert(ctx, '操作出错！请发送 /menu 重新打开菜单', true);
   }
-  setAdminMode(ctx.from.id, 'broadcast_buttons_wait', { nextMode: 'broadcast_smart' });
-  await showBroadcastButtonsPage(ctx, '🎯 智能广播配置');
 });
 
 async function handleTempBroadcastCallback(ctx, action, adminId) {
-  adminId = String(adminId);
-  const state = getTempBroadcast(adminId) || {};
-  let currentButtons = state.buttons || getEffectiveBroadcastButtons();
+  try {
+    adminId = String(adminId);
+    const state = getTempBroadcast(adminId) || {};
+    let currentButtons = state.buttons || getEffectiveBroadcastButtons();
 
-  if (action === 'tmp_btn_clear') {
-    currentButtons = [];
-    setTempBroadcast(adminId, { ...state, buttons: currentButtons });
-  } else if (action === 'tmp_btn_set') {
-    setAdminMode(adminId, 'tmp_btn_set_text', { returnTo: 'broadcast_buttons_page' });
-    await ctx.answerCallbackQuery();
-    try {
-      await ctx.editMessageText(`➕ 临时改【本次广播】按钮（只生效这一次！永久改用⚙️配置管理）\n\n✅ 两种格式：\n【写法1 一行一个】\n按钮文字|https://链接1\n按钮文字2|https://链接2\n\n【同一行放多个】中间用 空格|空格 隔开：\n按钮1|https://a.com | 按钮2|https://b.com\n\n【换行】空一行 或 写 ---：\n按钮1|a.com\n按钮2|b.com\n---\n按钮3|c.com\n\n【写法2 JSON】\n[[{"text":"按钮1","url":"https://a.com"}]]\n\n📝 直接发送内容：`, {
-        reply_markup: buildCancelKeyboard(),
-        parse_mode: 'HTML',
-      });
-    } catch {}
-    return { handled: true };
-  } else if (action === 'tmp_btn_preview') {
-    await ctx.answerCallbackQuery();
-    try { await ctx.deleteMessage(); } catch {}
-    try { await ctx.reply('👁️ 广播预览（用户实际收到的效果）：'); } catch {}
-    try {
-      await ctx.reply('这是一条示例广播内容，下方按钮就是当前配置的广播按钮。', {
-        reply_markup: buildInlineKeyboard(currentButtons),
-      });
-    } catch (e) {
-      await ctx.reply(`❌ 预览发送失败: ${escapeHtml(e.message)}（按钮格式错了？）`);
+    if (action === 'tmp_btn_clear') {
+      currentButtons = [];
+      setTempBroadcast(adminId, { ...state, buttons: currentButtons });
+    } else if (action === 'tmp_btn_set') {
+      setAdminMode(adminId, 'tmp_btn_set_text', { returnTo: 'broadcast_buttons_page' });
+      await ctx.answerCallbackQuery();
+      try {
+        await ctx.editMessageText(`➕ 临时改【本次广播】按钮（只生效这一次！永久改用⚙️配置管理）\n\n✅ 两种格式：\n【写法1 一行一个】\n按钮文字|https://链接1\n按钮文字2|https://链接2\n\n【同一行放多个】中间用 空格|空格 隔开：\n按钮1|https://a.com | 按钮2|https://b.com\n\n【换行】空一行 或 写 ---：\n按钮1|a.com\n按钮2|b.com\n---\n按钮3|c.com\n\n【写法2 JSON】\n[[{"text":"按钮1","url":"https://a.com"}]]\n\n📝 直接发送内容：`, {
+          reply_markup: buildCancelKeyboard(),
+          parse_mode: 'HTML',
+        });
+      } catch (e1) {
+        try { await ctx.reply(`➕ 临时改广播按钮\n📝 直接发送按钮内容：`, { reply_markup: buildCancelKeyboard(), parse_mode: 'HTML' }); }
+        catch (e2) {}
+      }
+      return { handled: true };
+    } else if (action === 'tmp_btn_preview') {
+      await ctx.answerCallbackQuery();
+      try { await ctx.deleteMessage(); } catch {}
+      try { await ctx.reply('👁️ 广播预览（用户实际收到的效果）：'); } catch {}
+      try {
+        await ctx.reply('这是一条示例广播内容，下方按钮就是当前配置的广播按钮。', {
+          reply_markup: buildInlineKeyboard(currentButtons),
+        });
+      } catch (e) {
+        await ctx.reply(`❌ 预览发送失败: ${escapeHtml(e.message)}（按钮格式错了？）`);
+      }
+      const ctrl = buildBroadcastButtonsControls(adminId, currentButtons);
+      let userCount = 0;
+      try { userCount = getUserCount(); } catch (_) {}
+      try {
+        await ctx.reply(`${state.modeLabel || '📢 广播配置'}\n共 ${userCount} 位用户将收到\n\n🔘 当前广播底部按钮配置：\n${ctrl.buttonsText}\n\n继续配置或点 ✅ 继续发送内容：`, {
+          reply_markup: ctrl.keyboard,
+          parse_mode: 'HTML',
+        });
+      } catch {}
+      return { handled: true };
+    } else if (action === 'tmp_btn_continue') {
+      const adminState = getAdminMode(adminId);
+      const nextMode = adminState.data && adminState.data.nextMode ? adminState.data.nextMode : 'broadcast_text';
+      clearAdminMode(adminId);
+      let userCount = 0;
+      try { userCount = getUserCount(); } catch (_) {}
+      setTempBroadcast(adminId, { buttons: currentButtons, modeLabel: state.modeLabel, active: true });
+      await ctx.answerCallbackQuery();
+      let promptText = '';
+      if (nextMode === 'broadcast_text') {
+        setAdminMode(adminId, 'broadcast_text');
+        promptText = `✏️ 请发送要广播的文字内容：\n\n共 ${userCount} 位用户将收到\n\n需要文字+图片一起广播请改用「🖼️ 图文广播」/「📜 文图双条广播」`;
+      } else if (nextMode === 'broadcast_photo') {
+        setAdminMode(adminId, 'broadcast_photo');
+        promptText = `🖼️ 请发送要广播的图片（可以附带caption文字说明，会和图片一起显示）：\n\n共 ${userCount} 位用户将收到\n\n分成两条独立消息（先文字后图片）用「📜 文图双条广播」`;
+      } else if (nextMode === 'broadcast_mixed') {
+        setAdminMode(adminId, 'broadcast_mixed_1');
+        promptText = `📜 文图双条广播（先文字后图片，共2条）\n\n第 1 步：请发送「文字内容」（单独一条文字）：\n共 ${userCount} 位用户将收到`;
+      } else if (nextMode === 'broadcast_smart') {
+        setAdminMode(adminId, 'broadcast_smart');
+        promptText = `🎯 智能广播（你发什么我原样广播什么，自动加底部按钮）\n\n支持：文字/图片+caption/文档/贴纸/视频/语音/位置/联系人\n\n请发送要广播的内容：\n共 ${userCount} 位用户将收到`;
+      }
+      if (promptText) {
+        try { await ctx.editMessageText(promptText, { reply_markup: buildCancelKeyboard() }); }
+        catch (e1) { try { await ctx.reply(promptText, { reply_markup: buildCancelKeyboard() }); } catch (e2) {} }
+      }
+      return { handled: true };
     }
+
+    setTempBroadcast(adminId, { ...state, buttons: currentButtons });
     const ctrl = buildBroadcastButtonsControls(adminId, currentButtons);
     let userCount = 0;
     try { userCount = getUserCount(); } catch (_) {}
     try {
-      await ctx.reply(`${state.modeLabel || '📢 广播配置'}\n共 ${userCount} 位用户将收到\n\n🔘 当前广播底部按钮配置：\n${ctrl.buttonsText}\n\n继续配置或点 ✅ 继续发送内容：`, {
+      await ctx.editMessageText(`${state.modeLabel || '📢 广播配置'}\n共 ${userCount} 位用户将收到\n\n🔘 当前广播底部按钮配置：\n${ctrl.buttonsText}\n\n继续配置：`, {
         reply_markup: ctrl.keyboard,
         parse_mode: 'HTML',
       });
     } catch {}
+    try { await ctx.answerCallbackQuery(); } catch {}
     return { handled: true };
-  } else if (action === 'tmp_btn_continue') {
-    const adminState = getAdminMode(adminId);
-    const nextMode = adminState.data && adminState.data.nextMode ? adminState.data.nextMode : 'broadcast_text';
-    clearAdminMode(adminId);
-    let userCount = 0;
-    try { userCount = getUserCount(); } catch (_) {}
-    setTempBroadcast(adminId, { buttons: currentButtons, modeLabel: state.modeLabel, active: true });
-    await ctx.answerCallbackQuery();
-    if (nextMode === 'broadcast_text') {
-      setAdminMode(adminId, 'broadcast_text');
-      await ctx.editMessageText(`✏️ 请发送要广播的文字内容：\n\n共 ${userCount} 位用户将收到\n\n需要文字+图片一起广播请改用「🖼️ 图文广播」/「📜 文图双条广播」`, {
-        reply_markup: buildCancelKeyboard(),
-      });
-    } else if (nextMode === 'broadcast_photo') {
-      setAdminMode(adminId, 'broadcast_photo');
-      await ctx.editMessageText(`🖼️ 请发送要广播的图片（可以附带caption文字说明，会和图片一起显示）：\n\n共 ${userCount} 位用户将收到\n\n分成两条独立消息（先文字后图片）用「📜 文图双条广播」`, {
-        reply_markup: buildCancelKeyboard(),
-      });
-    } else if (nextMode === 'broadcast_mixed') {
-      setAdminMode(adminId, 'broadcast_mixed_1');
-      await ctx.editMessageText(`📜 文图双条广播（先文字后图片，共2条）\n\n第 1 步：请发送「文字内容」（单独一条文字）：\n共 ${userCount} 位用户将收到`, {
-        reply_markup: buildCancelKeyboard(),
-      });
-    } else if (nextMode === 'broadcast_smart') {
-      setAdminMode(adminId, 'broadcast_smart');
-      await ctx.editMessageText(`🎯 智能广播（你发什么我原样广播什么，自动加底部按钮）\n\n支持：文字/图片+caption/文档/贴纸/视频/语音/位置/联系人\n\n请发送要广播的内容：\n共 ${userCount} 位用户将收到`, {
-        reply_markup: buildCancelKeyboard(),
-      });
-    }
+  } catch (e) {
+    console.error('[handleTempBroadcastCallback 异常]', e && e.stack ? e.stack : e);
+    await safeAnswerAlert(ctx, '操作出错！请发送 /menu 重新打开菜单', true);
     return { handled: true };
   }
-
-  setTempBroadcast(adminId, { ...state, buttons: currentButtons });
-  const ctrl = buildBroadcastButtonsControls(adminId, currentButtons);
-  let userCount = 0;
-  try { userCount = getUserCount(); } catch (_) {}
-  try {
-    await ctx.editMessageText(`${state.modeLabel || '📢 广播配置'}\n共 ${userCount} 位用户将收到\n\n🔘 当前广播底部按钮配置：\n${ctrl.buttonsText}\n\n继续配置：`, {
-      reply_markup: ctrl.keyboard,
-      parse_mode: 'HTML',
-    });
-  } catch {}
-  try { await ctx.answerCallbackQuery(); } catch {}
-  return { handled: true };
 }
 
-bot.callbackQuery('pin_message', async (ctx) => {
-  if (!isAdmin(ctx.from?.id)) { await ctx.answerCallbackQuery('无权限'); return; }
-  setAdminMode(ctx.from.id, 'pin_message');
-  await ctx.answerCallbackQuery();
-  try {
-    await ctx.editMessageText('📌 请发送要置顶的消息（文字或图片，可附带按钮）：\n\n发送后会自动在本聊天置顶。', {
-      reply_markup: buildCancelKeyboard(),
-    });
-  } catch {}
-});
-
 bot.callbackQuery('user_stats', async (ctx) => {
-  if (!isAdmin(ctx.from?.id)) { await ctx.answerCallbackQuery('无权限'); return; }
-  await ctx.answerCallbackQuery();
-  let count = 0;
-  try { count = getUserCount(); } catch (_) {}
-  const users = getAllUsers();
-  let statsText = `📊 用户统计\n\n👥 总用户数：${count} 人\n${isVercel ? '⚠️ 环境: Vercel Serverless（冷启动数据会重置）\n' : ''}\n`;
-  if (users.length > 0) {
-    statsText += '\n最近用户列表：\n';
-    const recent = users.slice(-15).reverse();
-    for (const u of recent) {
-      const name = [u.firstName, u.lastName].filter(Boolean).join(' ') || '未知';
-      statsText += `  • ${escapeHtml(name)}${u.username ? ' (@' + escapeHtml(u.username) + ')' : ''} | ID: ${u.id}\n`;
-    }
-  }
   try {
-    await ctx.editMessageText(statsText, { reply_markup: buildAdminBroadcastKeyboard(count) });
-  } catch {
-    try { await ctx.reply(statsText, { reply_markup: buildAdminBroadcastKeyboard(count) }); } catch {}
+    if (!isAdmin(ctx.from?.id)) { await safeAnswerAlert(ctx, '无权限', true); return; }
+    await safeAnswerAlert(ctx);
+    let count = 0;
+    try { count = getUserCount(); } catch (_) {}
+    const users = getAllUsers();
+    let statsText = `📊 用户统计\n\n👥 总用户数：${count} 人\n${isVercel ? '⚠️ 环境: Vercel Serverless（冷启动数据会重置）\n' : ''}\n`;
+    if (users.length > 0) {
+      statsText += '\n最近用户列表：\n';
+      const recent = users.slice(-15).reverse();
+      for (const u of recent) {
+        const name = [u.firstName, u.lastName].filter(Boolean).join(' ') || '未知';
+        statsText += `  • ${escapeHtml(name)}${u.username ? ' (@' + escapeHtml(u.username) + ')' : ''} | ID: ${u.id}\n`;
+      }
+    }
+    try {
+      await ctx.editMessageText(statsText, { reply_markup: buildAdminBroadcastKeyboard(count) });
+    } catch (e1) {
+      try { await ctx.reply(statsText, { reply_markup: buildAdminBroadcastKeyboard(count) }); }
+      catch (e2) { await safeAnswerAlert(ctx, '统计加载失败，请 /menu 重试', true); }
+    }
+  } catch (e) {
+    console.error('[user_stats 异常]', e && e.stack ? e.stack : e);
+    await safeAnswerAlert(ctx, '操作出错！请发送 /menu 重新打开菜单', true);
   }
 });
 
@@ -670,11 +737,6 @@ bot.on('message', async (ctx, next) => {
       return;
     }
 
-    if (state.mode === 'pin_message' && !(ctx.message.text && ctx.message.text.startsWith('/'))) {
-      clearAdminMode(fromId);
-      await handlePinMessage(ctx);
-      return;
-    }
   }
 
   await next();

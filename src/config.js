@@ -15,7 +15,8 @@ const config = {
 
   welcomeTitle: process.env.WELCOME_TITLE || '你好，欢迎咨询',
   welcomeMessage: process.env.WELCOME_MESSAGE || '🔒 专属会话已建立\n\n                                                                        │\n💗请直接发送需要咨询的文字、图片、文件或其他内容，客服人员收到后会尽快回复。',
-  welcomeStatus: process.env.WELCOME_STATUS || '✅ 当前状态：在线接收\n🌐 会话通道：已连接\n🔔 消息通知：已开启\n\n🌍本机器人由悠米一手制作： @ummix ',
+  welcomeStatus: process.env.WELCOME_STATUS || '✅ 当前状态：在线接收\n🌐 会话通道：已连接\n🔔 消息通知：已开启',
+  welcomeFooter: process.env.WELCOME_FOOTER || '🌍本机器人由悠米一手制作： @ummix',
   welcomeImageUrl: process.env.WELCOME_IMAGE_URL || '',
   welcomeStickerId: process.env.WELCOME_STICKER_ID || '',
   welcomePremiumEmojiId: process.env.WELCOME_PREMIUM_EMOJI_ID || '',
@@ -25,6 +26,7 @@ const config = {
   statusBellEmojiId: process.env.STATUS_BELL_EMOJI_ID || '',
   quoteLockEmojiId: process.env.QUOTE_LOCK_EMOJI_ID || '',
   heartEmojiId: process.env.HEART_EMOJI_ID || '',
+  footerGlobeEmojiId: process.env.FOOTER_GLOBE_EMOJI_ID || '',
 
   inlineButtons: parseButtons(process.env.INLINE_BUTTONS),
   broadcastButtons: parseButtons(process.env.BROADCAST_BUTTONS),

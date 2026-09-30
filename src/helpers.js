@@ -64,6 +64,8 @@ function getEffectiveStatusGlobeEmojiId() { return getSetting('status_globe_emoj
 function getEffectiveStatusBellEmojiId() { return getSetting('status_bell_emoji_id', config.statusBellEmojiId || ''); }
 function getEffectiveQuoteLockEmojiId() { return getSetting('quote_lock_emoji_id', config.quoteLockEmojiId || ''); }
 function getEffectiveHeartEmojiId() { return getSetting('heart_emoji_id', config.heartEmojiId || ''); }
+function getEffectiveFooterGlobeEmojiId() { return getSetting('footer_globe_emoji_id', config.footerGlobeEmojiId || ''); }
+function getEffectiveWelcomeFooter() { return getSetting('welcome_footer', config.welcomeFooter || ''); }
 function renderMaybePremium(emojiId, fallback) {
   if (emojiId) return `<tg-emoji emoji-id="${emojiId}">${fallback}</tg-emoji>`;
   return fallback;
@@ -134,10 +136,12 @@ function buildWelcomeText(ctx) {
   const title = unescapeNewlines(escapeHtml(getEffectiveWelcomeTitle()));
   const msg = unescapeNewlines(getEffectiveWelcomeMessage());
   const statusRaw = unescapeNewlines(getEffectiveWelcomeStatus());
+  const footerRaw = unescapeNewlines(getEffectiveWelcomeFooter());
   const premiumEmojiId = getEffectiveWelcomePremiumEmojiId();
   const premiumEmojiText = getEffectiveWelcomePremiumEmojiText() || '✨';
   const lockIcon = renderMaybePremium(getEffectiveQuoteLockEmojiId(), '🔒');
   const heartIcon = renderMaybePremium(getEffectiveHeartEmojiId(), '💗');
+  const footerGlobeIcon = renderMaybePremium(getEffectiveFooterGlobeEmojiId(), '🌍');
 
   const lines = [];
   const prefixIcon = renderMaybePremium(premiumEmojiId, premiumEmojiText);
@@ -171,6 +175,16 @@ function buildWelcomeText(ctx) {
       return xEscaped;
     });
     lines.push(statLines.join('\n'));
+    if (footerRaw) lines.push('');
+  }
+
+  if (footerRaw) {
+    const escaped = escapeHtml(footerRaw);
+    if (/^🌍/.test(escaped)) {
+      lines.push(escaped.replace(/^🌍\s*/, footerGlobeIcon));
+    } else {
+      lines.push(escaped);
+    }
   }
 
   return lines.join('\n');
@@ -196,9 +210,7 @@ function buildAdminBroadcastKeyboard(userCount) {
     .text('📜 文图双条广播', 'broadcast_mixed')
     .text('🎯 智能广播', 'broadcast_smart')
     .row()
-    .text('📌 置顶消息', 'pin_message')
     .text('📊 用户统计', 'user_stats')
-    .row()
     .text('⚙️ 配置管理', 'settings_menu');
 }
 
@@ -208,18 +220,23 @@ function buildSettingsMenu() {
     .text('✉️ 欢迎消息主内容', 'cfg_set_message')
     .row()
     .text('ℹ️ 欢迎消息底部状态', 'cfg_set_status')
+    .text('🏷️ 底部制作者文字', 'cfg_set_footer')
+    .row()
     .text('🖼️ 欢迎图片URL', 'cfg_set_image')
-    .row()
     .text('🐻 动画贴纸(Sticker)', 'cfg_set_sticker')
-    .text('🌟 高级表情(Premium)', 'cfg_set_premium_emoji')
     .row()
-    .text('🔒 引用框锁头', 'cfg_set_quote_lock')
+    .text('🌟 标题前✨', 'cfg_set_premium_emoji')
+    .text('🔒 锁头', 'cfg_set_quote_lock')
+    .row()
+    .text('💗 爱心', 'cfg_set_heart')
+    .text('🌍 底部制作者🌍', 'cfg_set_footer_globe')
+    .row()
     .text('✅ 状态对号', 'cfg_set_status_check')
-    .row()
     .text('🌐 状态地球', 'cfg_set_status_globe')
-    .text('🔔 状态铃铛', 'cfg_set_status_bell')
     .row()
+    .text('🔔 状态铃铛', 'cfg_set_status_bell')
     .text('🔘 欢迎按钮', 'cfg_set_inline_buttons')
+    .row()
     .text('🔘 广播按钮', 'cfg_set_broadcast_buttons')
     .row()
     .text('👁️ 预览欢迎消息', 'cfg_preview')
@@ -274,5 +291,7 @@ module.exports = {
   getEffectiveStatusBellEmojiId,
   getEffectiveQuoteLockEmojiId,
   getEffectiveHeartEmojiId,
+  getEffectiveFooterGlobeEmojiId,
+  getEffectiveWelcomeFooter,
   renderMaybePremium,
 };
