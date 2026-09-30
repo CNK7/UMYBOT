@@ -63,6 +63,7 @@ function getEffectiveStatusCheckEmojiId() { return getSetting('status_check_emoj
 function getEffectiveStatusGlobeEmojiId() { return getSetting('status_globe_emoji_id', config.statusGlobeEmojiId || ''); }
 function getEffectiveStatusBellEmojiId() { return getSetting('status_bell_emoji_id', config.statusBellEmojiId || ''); }
 function getEffectiveQuoteLockEmojiId() { return getSetting('quote_lock_emoji_id', config.quoteLockEmojiId || ''); }
+function getEffectiveHeartEmojiId() { return getSetting('heart_emoji_id', config.heartEmojiId || ''); }
 function renderMaybePremium(emojiId, fallback) {
   if (emojiId) return `<tg-emoji emoji-id="${emojiId}">${fallback}</tg-emoji>`;
   return fallback;
@@ -135,6 +136,8 @@ function buildWelcomeText(ctx) {
   const statusRaw = unescapeNewlines(getEffectiveWelcomeStatus());
   const premiumEmojiId = getEffectiveWelcomePremiumEmojiId();
   const premiumEmojiText = getEffectiveWelcomePremiumEmojiText() || '✨';
+  const lockIcon = renderMaybePremium(getEffectiveQuoteLockEmojiId(), '🔒');
+  const heartIcon = renderMaybePremium(getEffectiveHeartEmojiId(), '💗');
 
   const lines = [];
   const prefixIcon = renderMaybePremium(premiumEmojiId, premiumEmojiText);
@@ -144,7 +147,15 @@ function buildWelcomeText(ctx) {
 
   if (msg) {
     const msgLines = msg.split('\n').filter(x => x !== undefined && x !== null).map(l => escapeHtml(l));
-    for (const l of msgLines) lines.push(l);
+    for (const l of msgLines) {
+      if (/^🔒\s*/.test(l)) {
+        lines.push(l.replace(/^🔒\s*/, lockIcon + ' '));
+      } else if (/^💗/.test(l)) {
+        lines.push(l.replace(/^💗\s*/, heartIcon));
+      } else {
+        lines.push(l);
+      }
+    }
     lines.push('');
   }
 
@@ -153,10 +164,11 @@ function buildWelcomeText(ctx) {
     const globeIcon = renderMaybePremium(getEffectiveStatusGlobeEmojiId(), '🌐');
     const bellIcon = renderMaybePremium(getEffectiveStatusBellEmojiId(), '🔔');
     const statLines = statusRaw.split('\n').map(x => {
-      if (/^(✅|✅ )?当前状态/.test(x)) return x.replace(/^✅\s*/, checkIcon + ' ');
-      if (/^(🌐|🌐 )?会话通道/.test(x)) return x.replace(/^🌐\s*/, globeIcon + ' ');
-      if (/^(🔔|🔔 )?消息通知/.test(x)) return x.replace(/^🔔\s*/, bellIcon + ' ');
-      return x;
+      const xEscaped = escapeHtml(x);
+      if (/^(✅|✅ )?当前状态/.test(xEscaped)) return xEscaped.replace(/^✅\s*/, checkIcon + ' ');
+      if (/^(🌐|🌐 )?会话通道/.test(xEscaped)) return xEscaped.replace(/^🌐\s*/, globeIcon + ' ');
+      if (/^(🔔|🔔 )?消息通知/.test(xEscaped)) return xEscaped.replace(/^🔔\s*/, bellIcon + ' ');
+      return xEscaped;
     });
     lines.push(statLines.join('\n'));
   }
@@ -261,5 +273,6 @@ module.exports = {
   getEffectiveStatusGlobeEmojiId,
   getEffectiveStatusBellEmojiId,
   getEffectiveQuoteLockEmojiId,
+  getEffectiveHeartEmojiId,
   renderMaybePremium,
 };
