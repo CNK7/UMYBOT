@@ -18,6 +18,8 @@ const config = {
   welcomeStatus: process.env.WELCOME_STATUS || '✅ 当前状态：在线接收',
   welcomeImageUrl: process.env.WELCOME_IMAGE_URL || '',
   welcomeStickerId: process.env.WELCOME_STICKER_ID || '',
+  welcomePremiumEmojiId: process.env.WELCOME_PREMIUM_EMOJI_ID || '',
+  welcomePremiumEmojiText: process.env.WELCOME_PREMIUM_EMOJI_TEXT || '✨',
 
   inlineButtons: parseButtons(process.env.INLINE_BUTTONS),
   broadcastButtons: parseButtons(process.env.BROADCAST_BUTTONS),

@@ -12,6 +12,8 @@ if (isVercel) {
 }
 const usersFile = path.join(dataDir, 'users.json');
 const sessionsFile = path.join(dataDir, 'sessions.json');
+const settingsFile = path.join(dataDir, 'settings.json');
+const tempBroadcastFile = path.join(dataDir, 'temp-broadcast.json');
 
 let storageWarned = false;
 function warnStorage() {
@@ -78,6 +80,8 @@ function writeJson(file, data) {
 
 let users = readJson(usersFile, {});
 let sessions = readJson(sessionsFile, {});
+let settings = readJson(settingsFile, {});
+let tempBroadcastState = readJson(tempBroadcastFile, {});
 
 function saveUsers() {
   writeJson(usersFile, users);
@@ -85,6 +89,14 @@ function saveUsers() {
 
 function saveSessions() {
   writeJson(sessionsFile, sessions);
+}
+
+function saveSettings() {
+  writeJson(settingsFile, settings);
+}
+
+function saveTempBroadcast() {
+  writeJson(tempBroadcastFile, tempBroadcastState);
 }
 
 function addUser(userId, username, firstName, lastName) {
@@ -132,6 +144,30 @@ function deleteSession(adminMsgId) {
   }
 }
 
+function getSetting(key, defaultValue) {
+  if (settings[key] !== undefined && settings[key] !== null && settings[key] !== '') return settings[key];
+  return defaultValue;
+}
+function setSetting(key, value) {
+  settings[key] = value;
+  saveSettings();
+}
+function getAllSettings() {
+  return JSON.parse(JSON.stringify(settings));
+}
+
+function getTempBroadcast(adminId) {
+  return tempBroadcastState[String(adminId)] || null;
+}
+function setTempBroadcast(adminId, value) {
+  if (value == null) {
+    delete tempBroadcastState[String(adminId)];
+  } else {
+    tempBroadcastState[String(adminId)] = value;
+  }
+  saveTempBroadcast();
+}
+
 module.exports = {
   addUser,
   getAllUsers,
@@ -140,4 +176,9 @@ module.exports = {
   getSession,
   deleteSession,
   isVercel,
+  getSetting,
+  setSetting,
+  getAllSettings,
+  getTempBroadcast,
+  setTempBroadcast,
 };

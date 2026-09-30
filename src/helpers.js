@@ -1,5 +1,6 @@
 const { InlineKeyboard } = require('grammy');
 const { config } = require('./config');
+const { getSetting } = require('./storage');
 
 function escapeHtml(str) {
   if (str == null) return '';
@@ -14,6 +15,49 @@ function escapeHtml(str) {
 function unescapeNewlines(str) {
   if (str == null) return '';
   return String(str).replace(/\\n/g, '\n');
+}
+
+function parseButtonsArray(jsonOrArr) {
+  if (!jsonOrArr) return [];
+  if (Array.isArray(jsonOrArr)) return jsonOrArr;
+  try {
+    const parsed = JSON.parse(jsonOrArr);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function getEffectiveInlineButtons() {
+  const saved = getSetting('inline_buttons', null);
+  if (saved) return parseButtonsArray(saved);
+  return parseButtonsArray(config.inlineButtons);
+}
+function getEffectiveBroadcastButtons() {
+  const saved = getSetting('broadcast_buttons', null);
+  if (saved) return parseButtonsArray(saved);
+  return parseButtonsArray(config.broadcastButtons);
+}
+function getEffectiveWelcomeTitle() {
+  return getSetting('welcome_title', config.welcomeTitle || '你好');
+}
+function getEffectiveWelcomeMessage() {
+  return getSetting('welcome_message', config.welcomeMessage || '');
+}
+function getEffectiveWelcomeStatus() {
+  return getSetting('welcome_status', config.welcomeStatus || '');
+}
+function getEffectiveWelcomeImageUrl() {
+  return getSetting('welcome_image_url', config.welcomeImageUrl || '');
+}
+function getEffectiveWelcomeStickerId() {
+  return getSetting('welcome_sticker_id', config.welcomeStickerId || '');
+}
+function getEffectiveWelcomePremiumEmojiId() {
+  return getSetting('welcome_premium_emoji_id', config.welcomePremiumEmojiId || '');
+}
+function getEffectiveWelcomePremiumEmojiText() {
+  return getSetting('welcome_premium_emoji_text', config.welcomePremiumEmojiText || '✨');
 }
 
 function buildInlineKeyboard(buttons) {
@@ -34,30 +78,57 @@ function buildInlineKeyboard(buttons) {
   return keyboard;
 }
 
+function stringifyButtons(buttons) {
+  if (!buttons || buttons.length === 0) return '（无）';
+  return buttons.map(b => {
+    const type = b.url ? '🔗' : b.callback_data ? '⚙️' : '📱';
+    const target = b.url || b.callback_data || b.web_app || '';
+    return `${type} ${escapeHtml(b.text)} → ${escapeHtml(target)}`;
+  }).join('\n');
+}
+
+function buildQuoteBlock(title, bodyEmojiPrefix, bodyLinesRaw) {
+  const q = [];
+  const prefix = '▎';
+  q.push(`${prefix} ${bodyEmojiPrefix} ${title || ''}`);
+  if (bodyLinesRaw && bodyLinesRaw.length > 0) {
+    for (const line of bodyLinesRaw) {
+      if (line) {
+        q.push(`${prefix}  ${line}`);
+      } else {
+        q.push(`${prefix}`);
+      }
+    }
+  }
+  return q.join('\n');
+}
+
 function buildWelcomeText(ctx) {
   const userName = escapeHtml(ctx.from?.first_name || '朋友');
+  const title = unescapeNewlines(escapeHtml(getEffectiveWelcomeTitle()));
+  const msg = unescapeNewlines(getEffectiveWelcomeMessage());
+  const status = unescapeNewlines(getEffectiveWelcomeStatus());
+  const premiumEmojiId = getEffectiveWelcomePremiumEmojiId();
+  const premiumEmojiText = getEffectiveWelcomePremiumEmojiText() || '✨';
+
   const lines = [];
+  if (premiumEmojiId) {
+    lines.push(`<tg-emoji emoji-id="${premiumEmojiId}">${premiumEmojiText}</tg-emoji> ${title}，${userName}`);
+  } else {
+    lines.push(`${premiumEmojiText} ${title}，${userName}`);
+  }
+  lines.push('');
 
-  if (config.welcomeTitle) {
-    lines.push(`✨ ${unescapeNewlines(escapeHtml(config.welcomeTitle))}，${userName}`);
+  if (msg) {
+    const msgLines = msg.split('\n');
+    const firstLine = msgLines[0] || '';
+    const rest = msgLines.slice(1);
+    lines.push(buildQuoteBlock(firstLine, '🔒', rest));
     lines.push('');
   }
 
-  if (config.welcomeMessage) {
-    const msgLines = unescapeNewlines(config.welcomeMessage).split('\n');
-    if (msgLines[0]) {
-      lines.push(`🔒 ${escapeHtml(msgLines[0])}`);
-    }
-    const rest = msgLines.slice(1).map(l => escapeHtml(l));
-    if (rest.length > 0) {
-      lines.push('');
-      lines.push(rest.join('\n'));
-    }
-    lines.push('');
-  }
-
-  if (config.welcomeStatus) {
-    lines.push(unescapeNewlines(escapeHtml(config.welcomeStatus)));
+  if (status) {
+    lines.push(status);
   }
 
   return lines.join('\n');
@@ -84,12 +155,49 @@ function buildAdminBroadcastKeyboard(userCount) {
     .text('🎯 智能广播', 'broadcast_smart')
     .row()
     .text('📌 置顶消息', 'pin_message')
-    .text('📊 用户统计', 'user_stats');
+    .text('📊 用户统计', 'user_stats')
+    .row()
+    .text('⚙️ 配置管理', 'settings_menu');
+}
+
+function buildSettingsMenu() {
+  return new InlineKeyboard()
+    .text('✏️ 欢迎消息标题', 'cfg_set_title')
+    .text('✉️ 欢迎消息主内容', 'cfg_set_message')
+    .row()
+    .text('ℹ️ 欢迎消息底部状态', 'cfg_set_status')
+    .text('🖼️ 欢迎图片URL', 'cfg_set_image')
+    .row()
+    .text('🐻 动画贴纸(Sticker)', 'cfg_set_sticker')
+    .text('🌟 高级表情(Premium)', 'cfg_set_premium_emoji')
+    .row()
+    .text('🔘 欢迎按钮', 'cfg_set_inline_buttons')
+    .text('🔘 广播按钮', 'cfg_set_broadcast_buttons')
+    .row()
+    .text('👁️ 预览欢迎消息', 'cfg_preview')
+    .row()
+    .text('🔙 恢复默认配置', 'cfg_reset_all')
+    .text('← 返回主菜单', 'back_to_menu');
 }
 
 function buildCancelKeyboard() {
   return new InlineKeyboard()
     .text('← 返回菜单', 'back_to_menu');
+}
+
+function buildBroadcastButtonsControls(adminId, currentButtons) {
+  const kb = new InlineKeyboard()
+    .text('➕ 新增/替换一个按钮', `tmp_btn_set|${adminId}`)
+    .text('🗑️ 清空所有按钮', `tmp_btn_clear|${adminId}`)
+    .row()
+    .text('👁️ 预览广播效果', `tmp_btn_preview|${adminId}`)
+    .text('✅ 用当前按钮继续', `tmp_btn_continue|${adminId}`)
+    .row()
+    .text('← 返回菜单', 'back_to_menu');
+  return {
+    keyboard: kb,
+    buttonsText: stringifyButtons(currentButtons),
+  };
 }
 
 module.exports = {
@@ -98,6 +206,19 @@ module.exports = {
   buildUserInfo,
   buildAdminBroadcastKeyboard,
   buildCancelKeyboard,
+  buildSettingsMenu,
+  buildBroadcastButtonsControls,
+  stringifyButtons,
+  parseButtonsArray,
   escapeHtml,
   unescapeNewlines,
+  getEffectiveInlineButtons,
+  getEffectiveBroadcastButtons,
+  getEffectiveWelcomeTitle,
+  getEffectiveWelcomeMessage,
+  getEffectiveWelcomeStatus,
+  getEffectiveWelcomeImageUrl,
+  getEffectiveWelcomeStickerId,
+  getEffectiveWelcomePremiumEmojiId,
+  getEffectiveWelcomePremiumEmojiText,
 };

@@ -7,6 +7,11 @@ const {
   createSession,
   getSession,
   isVercel,
+  getSetting,
+  setSetting,
+  getAllSettings,
+  getTempBroadcast,
+  setTempBroadcast,
 } = require('./storage');
 const {
   buildInlineKeyboard,
@@ -14,7 +19,15 @@ const {
   buildUserInfo,
   buildAdminBroadcastKeyboard,
   buildCancelKeyboard,
+  buildSettingsMenu,
+  buildBroadcastButtonsControls,
+  stringifyButtons,
+  parseButtonsArray,
   escapeHtml,
+  getEffectiveInlineButtons,
+  getEffectiveBroadcastButtons,
+  getEffectiveWelcomeImageUrl,
+  getEffectiveWelcomeStickerId,
 } = require('./helpers');
 
 if (!config.botToken) {
@@ -66,29 +79,32 @@ bot.command('start', async (ctx) => {
 
   if (isAdmin(ctx.from?.id)) {
     const userCount = getUserCount();
-    await ctx.reply(`🎛️ 管理员控制台\n\n当前用户数：${userCount} 人${isVercel ? '\n\n⚠️ 当前环境：Vercel Serverless\n冷启动数据会重置，用户量大请改用 aapanel 部署。' : ''}`, {
+    await ctx.reply(`🎛️ 管理员控制台\n\n当前用户数：${userCount} 人${isVercel ? '\n\n⚠️ 当前环境：Vercel Serverless\n冷启动数据会重置，用户量大请改用 aapanel 部署。' : ''}\n\n⚙️ 新增功能：配置管理 → 直接在 Telegram 改欢迎消息、按钮，不用去 Vercel 重部署！`, {
       reply_markup: buildAdminBroadcastKeyboard(userCount),
     });
     return;
   }
 
   const welcomeText = buildWelcomeText(ctx);
-  const replyMarkup = buildInlineKeyboard(config.inlineButtons);
+  const replyMarkup = buildInlineKeyboard(getEffectiveInlineButtons());
+  const stickerId = getEffectiveWelcomeStickerId();
+  const imageUrl = getEffectiveWelcomeImageUrl();
 
-  if (config.welcomeStickerId) {
+  if (stickerId) {
     try {
-      await ctx.replyWithSticker(config.welcomeStickerId);
+      await ctx.replyWithSticker(stickerId);
     } catch (e) {
       console.error('欢迎贴纸发送失败，已跳过:', e.message);
     }
   }
 
-  if (config.welcomeImageUrl) {
+  if (imageUrl) {
     try {
-      await ctx.replyWithPhoto(config.welcomeImageUrl, {
+      await ctx.replyWithPhoto(imageUrl, {
         caption: welcomeText,
         parse_mode: 'HTML',
         reply_markup: replyMarkup,
+        show_caption_above_media: true,
       });
       return;
     } catch (e) {
@@ -149,6 +165,7 @@ bot.callbackQuery('back_to_menu', async (ctx) => {
     return;
   }
   clearAdminMode(ctx.from.id);
+  setTempBroadcast(ctx.from.id, null);
   await ctx.answerCallbackQuery();
   const userCount = getUserCount();
   try {
@@ -157,6 +174,111 @@ bot.callbackQuery('back_to_menu', async (ctx) => {
     });
   } catch {}
 });
+
+bot.callbackQuery('settings_menu', async (ctx) => {
+  if (!isAdmin(ctx.from?.id)) { await ctx.answerCallbackQuery('无权限'); return; }
+  clearAdminMode(ctx.from.id);
+  await ctx.answerCallbackQuery();
+  const settings = getAllSettings();
+  const settingsList = Object.keys(settings).length === 0 ? '（空，使用 Vercel 环境变量默认配置）' :
+    Object.entries(settings).map(([k,v]) => {
+      const val = typeof v === 'string' && v.length > 40 ? v.slice(0, 40) + '...' : JSON.stringify(v);
+      return `  • ${escapeHtml(k)} = ${escapeHtml(String(val))}`;
+    }).join('\n');
+  const help = `⚙️ 配置管理（直接在 Telegram 改，不用去 Vercel 重部署！）\n\n📦 当前持久化的设置：\n${settingsList}\n\n💡 改完之后可以点「👁️ 预览欢迎消息」立即看效果。\n⚠️ 注意：如果部署在 Vercel，冷启动后存储会重置，重要配置请同时在 Vercel Environment Variables 里也填一下（双保险）。\n\n你想改哪个？点下面按钮：`;
+  try {
+    await ctx.editMessageText(help, { reply_markup: buildSettingsMenu(), parse_mode: 'HTML' });
+  } catch {
+    await ctx.reply(help, { reply_markup: buildSettingsMenu(), parse_mode: 'HTML' });
+  }
+});
+
+const CFG_KEYS = {
+  cfg_set_title: { key: 'welcome_title', name: '欢迎消息标题', example: '你好，悠米', type: 'text' },
+  cfg_set_message: { key: 'welcome_message', name: '欢迎消息主内容', example: '专属会话已建立\\n\\n请直接发消息咨询', type: 'text' },
+  cfg_set_status: { key: 'welcome_status', name: '欢迎消息底部状态', example: '✅ 在线接收\\n🔔 通知开启', type: 'text' },
+  cfg_set_image: { key: 'welcome_image_url', name: '欢迎图片 URL', example: 'https://example.com/welcome.png', type: 'text' },
+  cfg_set_sticker: { key: 'welcome_sticker_id', name: '欢迎动画贴纸 file_id', example: 'CAACAgIAAxkBAA...', type: 'text' },
+  cfg_set_premium_emoji: { key: 'welcome_premium_emoji_id', name: 'Premium自定义表情ID+文字（高级）', example: '"6170277659566676368|✨', type: 'premium_emoji' },
+  cfg_set_inline_buttons: { key: 'inline_buttons', name: '欢迎按钮（JSON数组）', example: '[{"text":"按钮","url":"https://example.com"}]', type: 'buttons_json' },
+  cfg_set_broadcast_buttons: { key: 'broadcast_buttons', name: '广播按钮（JSON数组）', example: '[{"text":"点击查看","url":"https://example.com"}]', type: 'buttons_json' },
+};
+
+for (const [cbId, cfg] of Object.entries(CFG_KEYS)) {
+  bot.callbackQuery(cbId, async (ctx) => {
+    if (!isAdmin(ctx.from?.id)) { await ctx.answerCallbackQuery('无权限'); return; }
+    setAdminMode(ctx.from.id, 'cfg_set_' + cfg.key, { type: cfg.type });
+    await ctx.answerCallbackQuery();
+    const current = getSetting(cfg.key, '(空)');
+    const example = cfg.type === 'text' ? cfg.example : cfg.example;
+    let typeTip = '';
+    if (cfg.type === 'buttons_json') typeTip = '（JSON数组 格式）';
+    if (cfg.type === 'premium_emoji') typeTip = '（格式：custom_emoji_id|替代文字，2个用竖线|分隔）';
+    let help = `✏️ 设置 ${cfg.name}${typeTip}\n\n📌 当前值：\n${escapeHtml(JSON.stringify(current))}\n\n💡 示例值：\n${escapeHtml(example)}\n\n请直接发送要设置的新值，或点「← 返回菜单」取消：`;
+    if (cfg.type === 'premium_emoji') {
+      help = `🌟 设置Premium自定义表情+替代文字\n\n📋 两种使用方法：\n1️⃣ 把那个盾牌/V7 等Premium表情（Emoji面板里的）发到 @RawDataBot 拿 JSON\n2️⃣ 在 JSON 里找 entities[].custom_emoji_id = "123456abcdef 这一串\n3️⃣ 按「custom_emoji_id|替代文字」格式发出来\n\n示例：\n${escapeHtml(example)}\n\n📌 当前值：\n${escapeHtml(JSON.stringify(current))}\n\n请直接发送要设置的新值（id|文字），或点「← 返回菜单」取消：`;
+    }
+    try {
+      await ctx.editMessageText(help, { reply_markup: buildCancelKeyboard(), parse_mode: 'HTML' });
+    } catch {
+      await ctx.reply(help, { reply_markup: buildCancelKeyboard(), parse_mode: 'HTML' });
+    }
+  });
+}
+
+bot.callbackQuery('cfg_preview', async (ctx) => {
+  if (!isAdmin(ctx.from?.id)) { await ctx.answerCallbackQuery('无权限'); return; }
+  await ctx.answerCallbackQuery();
+  try { await ctx.deleteMessage(); } catch {}
+  const welcomeText = buildWelcomeText(ctx);
+  const replyMarkup = buildInlineKeyboard(getEffectiveInlineButtons());
+  const stickerId = getEffectiveWelcomeStickerId();
+  const imageUrl = getEffectiveWelcomeImageUrl();
+  if (stickerId) {
+    try { await ctx.replyWithSticker(stickerId); } catch (e) {
+      await ctx.reply(`❌ 欢迎贴纸发送失败: ${escapeHtml(e.message)}（可能 file_id 无效）`);
+    }
+  }
+  if (imageUrl) {
+    try {
+      await ctx.replyWithPhoto(imageUrl, {
+        caption: welcomeText,
+        parse_mode: 'HTML',
+        reply_markup: replyMarkup,
+        show_caption_above_media: true,
+      });
+      return;
+    } catch (e) {
+      await ctx.reply(`❌ 欢迎图片发送失败: ${escapeHtml(e.message)}（可能 URL 无效）`);
+    }
+  }
+  await ctx.reply(welcomeText, { parse_mode: 'HTML', reply_markup: replyMarkup });
+});
+
+bot.callbackQuery('cfg_reset_all', async (ctx) => {
+  if (!isAdmin(ctx.from?.id)) { await ctx.answerCallbackQuery('无权限'); return; }
+  const keysToRemove = ['welcome_title','welcome_message','welcome_status','welcome_image_url','welcome_sticker_id','welcome_premium_emoji_id','welcome_premium_emoji_text','inline_buttons','broadcast_buttons'];
+  for (const k of keysToRemove) setSetting(k, '');
+  await ctx.answerCallbackQuery('✅ 已恢复默认（使用 Vercel 环境变量配置）');
+  const userCount = getUserCount();
+  try {
+    await ctx.editMessageText(`🎛️ 管理员控制台\n\n当前用户数：${userCount} 人`, { reply_markup: buildAdminBroadcastKeyboard(userCount) });
+  } catch {
+    await ctx.reply(`🎛️ 管理员控制台\n\n当前用户数：${userCount} 人`, { reply_markup: buildAdminBroadcastKeyboard(userCount) });
+  }
+});
+
+async function showBroadcastButtonsPage(ctx, modeLabel) {
+  const adminId = String(ctx.from.id);
+  const current = getEffectiveBroadcastButtons();
+  setTempBroadcast(adminId, { buttons: parseButtonsArray(JSON.stringify(current)), modeLabel });
+  const ctrl = buildBroadcastButtonsControls(adminId, current);
+  const userCount = getUserCount();
+  await ctx.editMessageText(`${modeLabel}\n共 ${userCount} 位用户将收到\n\n🔘 当前广播底部按钮配置：\n${ctrl.buttonsText}\n\n✨ 你可以在这里临时改这一次广播要用的按钮（改完点 ✅ 继续发送），也可以点 ➕ 替换按钮。如果想要永久性修改，请用「⚙️ 配置管理」改。\n\n准备好之后点：\n  ✅ 用当前按钮继续 → 下一步发送你要广播的内容`, {
+    reply_markup: ctrl.keyboard,
+    parse_mode: 'HTML',
+  });
+}
 
 bot.callbackQuery('broadcast_text', async (ctx) => {
   if (!isAdmin(ctx.from?.id)) { await ctx.answerCallbackQuery('无权限'); return; }
@@ -168,11 +290,9 @@ bot.callbackQuery('broadcast_text', async (ctx) => {
     });
     return;
   }
-  setAdminMode(ctx.from.id, 'broadcast_text');
   await ctx.answerCallbackQuery();
-  await ctx.editMessageText(`✏️ 请发送要广播的文字内容（支持换行+表情，自动转义 HTML 特殊字符）：\n\n⚠️ 需要文字+图片一起发？请改用「🖼️ 图文广播」或「📜 文图双条广播」\n\n共 ${userCount} 位用户将收到\n\n随时可点击下方返回取消：`, {
-    reply_markup: buildCancelKeyboard(),
-  });
+  setAdminMode(ctx.from.id, 'broadcast_buttons_wait', { nextMode: 'broadcast_text' });
+  await showBroadcastButtonsPage(ctx, '📢 广播文字配置');
 });
 
 bot.callbackQuery('broadcast_photo', async (ctx) => {
@@ -185,11 +305,9 @@ bot.callbackQuery('broadcast_photo', async (ctx) => {
     });
     return;
   }
-  setAdminMode(ctx.from.id, 'broadcast_photo');
   await ctx.answerCallbackQuery();
-  await ctx.editMessageText(`🖼️ 请发送要广播的图片（📝 可以附带文字说明，会自动和图片一起显示在图片下方）：\n\n✅ 这就是「图文一起广播」！\n共 ${userCount} 位用户将收到\n\n（想文字和图片分成两条独立消息的，请改用「📜 文图双条广播」）`, {
-    reply_markup: buildCancelKeyboard(),
-  });
+  setAdminMode(ctx.from.id, 'broadcast_buttons_wait', { nextMode: 'broadcast_photo' });
+  await showBroadcastButtonsPage(ctx, '🖼️ 图文广播配置');
 });
 
 bot.callbackQuery('broadcast_mixed', async (ctx) => {
@@ -202,11 +320,9 @@ bot.callbackQuery('broadcast_mixed', async (ctx) => {
     });
     return;
   }
-  setAdminMode(ctx.from.id, 'broadcast_mixed_1');
   await ctx.answerCallbackQuery();
-  await ctx.editMessageText(`📜 文图双条广播（分两条独立消息发送，文字长度不受限制）\n\n第 1 步：请先发送要广播的「文字内容」（单独文字，不要带图）：\n\n共 ${userCount} 位用户将收到`, {
-    reply_markup: buildCancelKeyboard(),
-  });
+  setAdminMode(ctx.from.id, 'broadcast_buttons_wait', { nextMode: 'broadcast_mixed' });
+  await showBroadcastButtonsPage(ctx, '📜 文图双条广播配置');
 });
 
 bot.callbackQuery('broadcast_smart', async (ctx) => {
@@ -219,11 +335,103 @@ bot.callbackQuery('broadcast_smart', async (ctx) => {
     });
     return;
   }
-  setAdminMode(ctx.from.id, 'broadcast_smart');
   await ctx.answerCallbackQuery();
-  await ctx.editMessageText(`🎯 智能广播：你发什么，我就原样广播什么（自动附带底部按钮）\n\n✅ 支持 文字 / 图片+caption / 文档 / 贴纸 / 视频 / 语音 / 位置 / 联系人\n\n请发送你要广播的内容：\n共 ${userCount} 位用户将收到`, {
-    reply_markup: buildCancelKeyboard(),
-  });
+  setAdminMode(ctx.from.id, 'broadcast_buttons_wait', { nextMode: 'broadcast_smart' });
+  await showBroadcastButtonsPage(ctx, '🎯 智能广播配置');
+});
+
+async function handleTempBroadcastCallback(ctx, action, adminId) {
+  adminId = String(adminId);
+  const state = getTempBroadcast(adminId) || {};
+  let currentButtons = state.buttons || getEffectiveBroadcastButtons();
+
+  if (action === 'tmp_btn_clear') {
+    currentButtons = [];
+    setTempBroadcast(adminId, { ...state, buttons: currentButtons });
+  } else if (action === 'tmp_btn_set') {
+    setAdminMode(adminId, 'tmp_btn_set_text', { returnTo: 'broadcast_buttons_page' });
+    await ctx.answerCallbackQuery();
+    const ctrl = buildBroadcastButtonsControls(adminId, currentButtons);
+    try {
+      await ctx.editMessageText(`➕ 请发送按钮定义，格式：一行一个，每行是 按钮文字|https://链接\n\n示例：\n按钮1|https://a.com\n按钮2|https://b.com\n\n或者直接发送 JSON 数组，例如：\n[{"text":"按钮","url":"https://example.com"}]`, {
+        reply_markup: buildCancelKeyboard(),
+      });
+    } catch {}
+    return { handled: true };
+  } else if (action === 'tmp_btn_preview') {
+    await ctx.answerCallbackQuery();
+    try { await ctx.deleteMessage(); } catch {}
+    await ctx.reply('👁️ 广播预览（这就是用户收到的样子）：');
+    try {
+      await ctx.reply('这是一条示例广播内容，下方按钮就是当前配置的广播按钮。', {
+        reply_markup: buildInlineKeyboard(currentButtons),
+      });
+    } catch (e) {
+      await ctx.reply(`❌ 预览发送失败: ${escapeHtml(e.message)}（按钮 JSON 格式错了？）`);
+    }
+    const ctrl = buildBroadcastButtonsControls(adminId, currentButtons);
+    const userCount = getUserCount();
+    await ctx.reply(`${state.modeLabel || '📢 广播配置'}\n共 ${userCount} 位用户将收到\n\n🔘 当前广播底部按钮配置：\n${ctrl.buttonsText}\n\n继续配置或点 ✅ 继续发送内容：`, {
+      reply_markup: ctrl.keyboard,
+      parse_mode: 'HTML',
+    });
+    return { handled: true };
+  } else if (action === 'tmp_btn_continue') {
+    const adminState = getAdminMode(adminId);
+    const nextMode = adminState.data && adminState.data.nextMode ? adminState.data.nextMode : 'broadcast_text';
+    clearAdminMode(adminId);
+    const userCount = getUserCount();
+    setTempBroadcast(adminId, { buttons: currentButtons, modeLabel: state.modeLabel, active: true });
+    await ctx.answerCallbackQuery();
+    if (nextMode === 'broadcast_text') {
+      setAdminMode(adminId, 'broadcast_text');
+      await ctx.editMessageText(`✏️ 请发送要广播的文字内容（支持换行+表情，自动转义 HTML 特殊字符）：\n\n⚠️ 需要文字+图片一起发？请改用「🖼️ 图文广播」或「📜 文图双条广播」\n\n共 ${userCount} 位用户将收到\n\n随时可点击下方返回取消：`, {
+        reply_markup: buildCancelKeyboard(),
+      });
+    } else if (nextMode === 'broadcast_photo') {
+      setAdminMode(adminId, 'broadcast_photo');
+      await ctx.editMessageText(`🖼️ 请发送要广播的图片（📝 可以附带文字说明，会自动和图片一起显示在图片下方）：\n\n✅ 这就是「图文一起广播」！\n共 ${userCount} 位用户将收到\n\n（想文字和图片分成两条独立消息的，请改用「📜 文图双条广播」）`, {
+        reply_markup: buildCancelKeyboard(),
+      });
+    } else if (nextMode === 'broadcast_mixed') {
+      setAdminMode(adminId, 'broadcast_mixed_1');
+      await ctx.editMessageText(`📜 文图双条广播（分两条独立消息发送，文字长度不受限制）\n\n第 1 步：请先发送要广播的「文字内容」（单独文字，不要带图）：\n\n共 ${userCount} 位用户将收到`, {
+        reply_markup: buildCancelKeyboard(),
+      });
+    } else if (nextMode === 'broadcast_smart') {
+      setAdminMode(adminId, 'broadcast_smart');
+      await ctx.editMessageText(`🎯 智能广播：你发什么，我就原样广播什么（自动附带底部按钮）\n\n✅ 支持 文字 / 图片+caption / 文档 / 贴纸 / 视频 / 语音 / 位置 / 联系人\n\n请发送你要广播的内容：\n共 ${userCount} 位用户将收到`, {
+        reply_markup: buildCancelKeyboard(),
+      });
+    }
+    return { handled: true };
+  }
+
+  setTempBroadcast(adminId, { ...state, buttons: currentButtons });
+  const ctrl = buildBroadcastButtonsControls(adminId, currentButtons);
+  try {
+    await ctx.editMessageText(`${state.modeLabel || '📢 广播配置'}\n共 ${getUserCount()} 位用户将收到\n\n🔘 当前广播底部按钮配置：\n${ctrl.buttonsText}\n\n继续配置：`, {
+      reply_markup: ctrl.keyboard,
+      parse_mode: 'HTML',
+    });
+  } catch {}
+  await ctx.answerCallbackQuery();
+  return { handled: true };
+}
+
+const tmpBtnRegex = /^(tmp_btn_set|tmp_btn_clear|tmp_btn_preview|tmp_btn_continue)\|(.+)$/;
+bot.on('callback_query', async (ctx, next) => {
+  const data = ctx.callbackQuery.data;
+  if (!data) return next();
+  const m = data.match(tmpBtnRegex);
+  if (m && isAdmin(ctx.from?.id)) {
+    const [, action, adminId] = m;
+    if (String(adminId) === String(ctx.from.id)) {
+      await handleTempBroadcastCallback(ctx, action, adminId);
+      return;
+    }
+  }
+  return next();
 });
 
 bot.callbackQuery('pin_message', async (ctx) => {
@@ -258,12 +466,72 @@ bot.callbackQuery('user_stats', async (ctx) => {
   }
 });
 
+function parseButtonsFriendly(rawText) {
+  if (!rawText) return [];
+  const text = rawText.trim();
+  if (text.startsWith('[')) {
+    return parseButtonsArray(text);
+  }
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const out = [];
+  for (const line of lines) {
+    const idx = line.indexOf('|');
+    if (idx < 0) continue;
+    const t = line.slice(0, idx).trim();
+    const url = line.slice(idx + 1).trim();
+    if (t && url) out.push({ text: t, url });
+  }
+  return out;
+}
+
 bot.on('message', async (ctx, next) => {
   const fromId = ctx.from?.id;
   if (!fromId) return next();
 
   if (isAdmin(fromId)) {
     const state = getAdminMode(fromId);
+
+    if (state.mode && state.mode.startsWith('cfg_set_')) {
+      const key = state.mode.slice('cfg_set_'.length);
+      const type = state.data && state.data.type ? state.data.type : 'text';
+      let value = ctx.message.text || '';
+      if (type === 'buttons_json') {
+        value = parseButtonsArray(ctx.message.text) || [];
+      } else if (type === 'premium_emoji') {
+        const raw = ctx.message.text || '';
+        const idx = raw.indexOf('|');
+        if (idx >= 0) {
+          const emojiId = raw.slice(0, idx).trim();
+          const emojiText = raw.slice(idx + 1).trim() || '✨';
+          setSetting('welcome_premium_emoji_text', emojiText);
+          value = emojiId;
+        } else {
+          value = raw.trim();
+        }
+      }
+      setSetting(key, type === 'buttons_json' ? JSON.stringify(value) : value);
+      clearAdminMode(fromId);
+      await ctx.reply(`✅ 设置成功！\n\n  Key: ${escapeHtml(key)}\n  新值: ${escapeHtml(JSON.stringify(value))}\n\n点下面预览或返回主菜单：`, {
+        reply_markup: new (require('grammy').InlineKeyboard)()
+          .text('👁️ 预览欢迎消息', 'cfg_preview')
+          .text('← 返回菜单', 'back_to_menu'),
+      });
+      return;
+    }
+
+    if (state.mode === 'tmp_btn_set_text' && ctx.message.text && !ctx.message.text.startsWith('/')) {
+      const parsed = parseButtonsFriendly(ctx.message.text);
+      const tb = getTempBroadcast(fromId) || {};
+      setTempBroadcast(fromId, { ...tb, buttons: parsed });
+      clearAdminMode(fromId);
+      await ctx.reply(`✅ 已设置本次广播用按钮：\n${stringifyButtons(parsed)}\n\n👉 现在点下面的「✅ 用当前按钮继续」或返回菜单：`, {
+        reply_markup: (function() {
+          const ctrl = buildBroadcastButtonsControls(String(fromId), parsed);
+          return ctrl.keyboard;
+        })(),
+      });
+      return;
+    }
 
     if (state.mode === 'broadcast_text' && ctx.message.text && !ctx.message.text.startsWith('/')) {
       clearAdminMode(fromId);
@@ -329,10 +597,24 @@ bot.on('message', async (ctx, next) => {
   await next();
 });
 
+function getTempOrDefaultButtons(ctx) {
+  const fromId = ctx.from?.id;
+  if (!fromId) return getEffectiveBroadcastButtons();
+  const temp = getTempBroadcast(String(fromId));
+  if (temp && temp.active && Array.isArray(temp.buttons)) {
+    return temp.buttons;
+  }
+  return getEffectiveBroadcastButtons();
+}
+function cleanupTempButtons(ctx) {
+  const fromId = ctx.from?.id;
+  if (fromId) setTempBroadcast(String(fromId), null);
+}
+
 async function handleBroadcastText(ctx) {
   const rawText = ctx.message.text;
   const escapedText = escapeHtml(rawText);
-  const buttons = buildInlineKeyboard(config.broadcastButtons);
+  const buttons = buildInlineKeyboard(getTempOrDefaultButtons(ctx));
   const users = getAllUsers();
   let success = 0;
   let failed = 0;
@@ -367,6 +649,8 @@ async function handleBroadcastText(ctx) {
     }
   }
 
+  cleanupTempButtons(ctx);
+
   let finalText = `✅ 文字广播完成！\n\n✅ 成功：${success} 人\n❌ 失败：${failed} 人`;
   if (failedUsers.length > 0 && failedUsers.length <= 20) {
     finalText += `\n\n失败详情：\n${failedUsers.join('\n')}`;
@@ -387,7 +671,7 @@ async function handleBroadcastPhoto(ctx) {
   const escapedCaption = escapeHtml(rawCaption);
   const photo = ctx.message.photo[ctx.message.photo.length - 1];
   const fileId = photo.file_id;
-  const buttons = buildInlineKeyboard(config.broadcastButtons);
+  const buttons = buildInlineKeyboard(getTempOrDefaultButtons(ctx));
   const users = getAllUsers();
   let success = 0;
   let failed = 0;
@@ -422,6 +706,8 @@ async function handleBroadcastPhoto(ctx) {
     }
   }
 
+  cleanupTempButtons(ctx);
+
   let finalText = `✅ 图文广播完成！\n\n✅ 成功：${success} 人\n❌ 失败：${failed} 人`;
   if (failedUsers.length > 0 && failedUsers.length <= 20) {
     finalText += `\n\n失败详情：\n${failedUsers.join('\n')}`;
@@ -441,7 +727,7 @@ async function handleBroadcastMixed(ctx, mixedText) {
   const rawCaption = ctx.message.caption || '';
   const escapedCaption = escapeHtml(rawCaption);
   const escapedText = escapeHtml(mixedText);
-  const buttons = buildInlineKeyboard(config.broadcastButtons);
+  const buttons = buildInlineKeyboard(getTempOrDefaultButtons(ctx));
   const users = getAllUsers();
   let success = 0;
   let failed = 0;
@@ -482,6 +768,8 @@ async function handleBroadcastMixed(ctx, mixedText) {
     }
   }
 
+  cleanupTempButtons(ctx);
+
   let finalText = `✅ 文图双条广播完成！\n\n✅ 成功：${success} 人\n❌ 失败：${failed} 人`;
   if (failedUsers.length > 0 && failedUsers.length <= 20) {
     finalText += `\n\n失败详情：\n${failedUsers.join('\n')}`;
@@ -496,7 +784,7 @@ async function handleBroadcastMixed(ctx, mixedText) {
 }
 
 async function handleBroadcastSmart(ctx) {
-  const buttons = buildInlineKeyboard(config.broadcastButtons);
+  const buttons = buildInlineKeyboard(getTempOrDefaultButtons(ctx));
   const users = getAllUsers();
   let success = 0;
   let failed = 0;
@@ -543,6 +831,8 @@ async function handleBroadcastSmart(ctx) {
       }
     }
   }
+
+  cleanupTempButtons(ctx);
 
   let finalText = `✅ 智能广播 (${msgType}) 完成！\n\n✅ 成功：${success} 人\n❌ 失败：${failed} 人`;
   if (failedUsers.length > 0 && failedUsers.length <= 20) {
@@ -623,10 +913,22 @@ async function forwardToAdmins(ctx) {
       let forwardedId = null;
       const replyOpts = { reply_to_message_id: infoMsg.message_id };
       const isAnimatedSticker = ctx.message.sticker && (ctx.message.sticker.is_animated || ctx.message.sticker.is_video);
+      const hasCustomEmoji = ctx.message.entities && ctx.message.entities.some(e => e.type === 'custom_emoji');
+      const textHasSpecialEntities = ctx.message.entities && ctx.message.entities.some(e =>
+        ['custom_emoji', 'text_link', 'text_mention', 'pre', 'code'].includes(e.type)
+      );
 
-      if (ctx.message.text) {
+      if (ctx.message.text && !textHasSpecialEntities) {
         const fwd = await ctx.api.sendMessage(adminId, ctx.message.text, replyOpts);
         forwardedId = fwd.message_id;
+      } else if (ctx.message.text && textHasSpecialEntities) {
+        try {
+          const fwd = await ctx.copyMessage(adminId, replyOpts);
+          forwardedId = fwd.message_id;
+        } catch (e) {
+          const fwd2 = await ctx.api.sendMessage(adminId, ctx.message.text, replyOpts);
+          forwardedId = fwd2.message_id;
+        }
       } else if (ctx.message.photo) {
         const photo = ctx.message.photo[ctx.message.photo.length - 1];
         const fwd = await ctx.api.sendPhoto(adminId, photo.file_id, {
@@ -725,11 +1027,20 @@ async function forwardReplyToUser(ctx, userId) {
   try {
     let sentMsg = null;
     const isAnimatedSticker = ctx.message.sticker && (ctx.message.sticker.is_animated || ctx.message.sticker.is_video);
+    const replyTextHasSpecialEntities = ctx.message.entities && ctx.message.entities.some(e =>
+      ['custom_emoji', 'text_link', 'text_mention', 'pre', 'code'].includes(e.type)
+    );
 
-    if (ctx.message.text) {
+    if (ctx.message.text && !replyTextHasSpecialEntities) {
       sentMsg = await ctx.api.sendMessage(userId, escapeHtml(ctx.message.text), {
         parse_mode: 'HTML',
       });
+    } else if (ctx.message.text && replyTextHasSpecialEntities) {
+      try {
+        sentMsg = await ctx.copyMessage(userId);
+      } catch (e) {
+        sentMsg = await ctx.api.sendMessage(userId, escapeHtml(ctx.message.text));
+      }
     } else if (ctx.message.photo) {
       const photo = ctx.message.photo[ctx.message.photo.length - 1];
       const rawCap = ctx.message.caption || '';
