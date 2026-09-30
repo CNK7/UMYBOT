@@ -17,6 +17,7 @@ const config = {
   welcomeMessage: process.env.WELCOME_MESSAGE || '专属会话已建立\n\n请直接发送需要咨询的内容。',
   welcomeStatus: process.env.WELCOME_STATUS || '✅ 当前状态：在线接收',
   welcomeImageUrl: process.env.WELCOME_IMAGE_URL || '',
+  welcomeStickerId: process.env.WELCOME_STICKER_ID || '',
 
   inlineButtons: parseButtons(process.env.INLINE_BUTTONS),
   broadcastButtons: parseButtons(process.env.BROADCAST_BUTTONS),

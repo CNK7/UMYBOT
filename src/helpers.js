@@ -78,11 +78,12 @@ function buildUserInfo(ctx) {
 function buildAdminBroadcastKeyboard(userCount) {
   return new InlineKeyboard()
     .text(`📢 广播文字 (${userCount}人)`, 'broadcast_text')
+    .text('🖼️ 图文广播', 'broadcast_photo')
     .row()
-    .text('🖼️ 广播图片', 'broadcast_photo')
+    .text('📜 文图双条广播', 'broadcast_mixed')
+    .text('🎯 智能广播', 'broadcast_smart')
     .row()
     .text('📌 置顶消息', 'pin_message')
-    .row()
     .text('📊 用户统计', 'user_stats');
 }
 

@@ -75,6 +75,14 @@ bot.command('start', async (ctx) => {
   const welcomeText = buildWelcomeText(ctx);
   const replyMarkup = buildInlineKeyboard(config.inlineButtons);
 
+  if (config.welcomeStickerId) {
+    try {
+      await ctx.replyWithSticker(config.welcomeStickerId);
+    } catch (e) {
+      console.error('欢迎贴纸发送失败，已跳过:', e.message);
+    }
+  }
+
   if (config.welcomeImageUrl) {
     try {
       await ctx.replyWithPhoto(config.welcomeImageUrl, {
@@ -162,7 +170,7 @@ bot.callbackQuery('broadcast_text', async (ctx) => {
   }
   setAdminMode(ctx.from.id, 'broadcast_text');
   await ctx.answerCallbackQuery();
-  await ctx.editMessageText(`✏️ 请发送要广播的文字内容（支持换行，自动转义 HTML 特殊字符）：\n\n共 ${userCount} 位用户将收到\n\n随时可点击下方返回取消：`, {
+  await ctx.editMessageText(`✏️ 请发送要广播的文字内容（支持换行+表情，自动转义 HTML 特殊字符）：\n\n⚠️ 需要文字+图片一起发？请改用「🖼️ 图文广播」或「📜 文图双条广播」\n\n共 ${userCount} 位用户将收到\n\n随时可点击下方返回取消：`, {
     reply_markup: buildCancelKeyboard(),
   });
 });
@@ -179,7 +187,41 @@ bot.callbackQuery('broadcast_photo', async (ctx) => {
   }
   setAdminMode(ctx.from.id, 'broadcast_photo');
   await ctx.answerCallbackQuery();
-  await ctx.editMessageText(`🖼️ 请发送要广播的图片（可附带文字说明作为 caption）：\n\n共 ${userCount} 位用户将收到`, {
+  await ctx.editMessageText(`🖼️ 请发送要广播的图片（📝 可以附带文字说明，会自动和图片一起显示在图片下方）：\n\n✅ 这就是「图文一起广播」！\n共 ${userCount} 位用户将收到\n\n（想文字和图片分成两条独立消息的，请改用「📜 文图双条广播」）`, {
+    reply_markup: buildCancelKeyboard(),
+  });
+});
+
+bot.callbackQuery('broadcast_mixed', async (ctx) => {
+  if (!isAdmin(ctx.from?.id)) { await ctx.answerCallbackQuery('无权限'); return; }
+  const userCount = getUserCount();
+  if (isVercel && userCount > 200) {
+    await ctx.answerCallbackQuery();
+    await ctx.editMessageText(`⚠️ 检测到用户数 ${userCount} 超过了 Vercel 无服务器的广播上限（200 人）。\n\n双条广播更慢，请用 aapanel 部署方式。`, {
+      reply_markup: buildCancelKeyboard(),
+    });
+    return;
+  }
+  setAdminMode(ctx.from.id, 'broadcast_mixed_1');
+  await ctx.answerCallbackQuery();
+  await ctx.editMessageText(`📜 文图双条广播（分两条独立消息发送，文字长度不受限制）\n\n第 1 步：请先发送要广播的「文字内容」（单独文字，不要带图）：\n\n共 ${userCount} 位用户将收到`, {
+    reply_markup: buildCancelKeyboard(),
+  });
+});
+
+bot.callbackQuery('broadcast_smart', async (ctx) => {
+  if (!isAdmin(ctx.from?.id)) { await ctx.answerCallbackQuery('无权限'); return; }
+  const userCount = getUserCount();
+  if (isVercel && userCount > 200) {
+    await ctx.answerCallbackQuery();
+    await ctx.editMessageText(`⚠️ 检测到用户数 ${userCount} 超过了 Vercel 无服务器的广播上限（200 人）。\n\n请用 aapanel 部署方式。`, {
+      reply_markup: buildCancelKeyboard(),
+    });
+    return;
+  }
+  setAdminMode(ctx.from.id, 'broadcast_smart');
+  await ctx.answerCallbackQuery();
+  await ctx.editMessageText(`🎯 智能广播：你发什么，我就原样广播什么（自动附带底部按钮）\n\n✅ 支持 文字 / 图片+caption / 文档 / 贴纸 / 视频 / 语音 / 位置 / 联系人\n\n请发送你要广播的内容：\n共 ${userCount} 位用户将收到`, {
     reply_markup: buildCancelKeyboard(),
   });
 });
@@ -235,7 +277,28 @@ bot.on('message', async (ctx, next) => {
       return;
     }
 
-    if (state.mode === 'pin_message' && (ctx.message.text || ctx.message.photo) && !(ctx.message.text && ctx.message.text.startsWith('/'))) {
+    if (state.mode === 'broadcast_mixed_1' && ctx.message.text && !ctx.message.text.startsWith('/')) {
+      setAdminMode(fromId, 'broadcast_mixed_2', { text: ctx.message.text });
+      await ctx.reply(`✅ 已记录文字内容：\n\n${escapeHtml(ctx.message.text)}\n\n📸 第 2 步：请发送要广播的图片（可附带 caption）：`, {
+        reply_markup: buildCancelKeyboard(),
+      });
+      return;
+    }
+
+    if (state.mode === 'broadcast_mixed_2' && ctx.message.photo) {
+      const mixedText = state.data.text || '';
+      clearAdminMode(fromId);
+      await handleBroadcastMixed(ctx, mixedText);
+      return;
+    }
+
+    if (state.mode === 'broadcast_smart' && !(ctx.message.text && ctx.message.text.startsWith('/'))) {
+      clearAdminMode(fromId);
+      await handleBroadcastSmart(ctx);
+      return;
+    }
+
+    if (state.mode === 'pin_message' && !(ctx.message.text && ctx.message.text.startsWith('/'))) {
       clearAdminMode(fromId);
       await handlePinMessage(ctx);
       return;
@@ -330,7 +393,7 @@ async function handleBroadcastPhoto(ctx) {
   let failed = 0;
   const failedUsers = [];
 
-  const statusMsg = await ctx.reply(`📤 正在广播图片... (0/${users.length})`);
+  const statusMsg = await ctx.reply(`📤 正在广播图片+文字... (0/${users.length})`);
 
   for (let i = 0; i < users.length; i++) {
     const user = users[i];
@@ -350,7 +413,7 @@ async function handleBroadcastPhoto(ctx) {
         await ctx.api.editMessageText(
           ctx.chat.id,
           statusMsg.message_id,
-          `📤 正在广播图片... (${i + 1}/${users.length})\n成功 ${success} / 失败 ${failed}`
+          `📤 正在广播图片+文字... (${i + 1}/${users.length})\n成功 ${success} / 失败 ${failed}`
         );
       } catch {}
       if (i < users.length - 1) {
@@ -359,7 +422,129 @@ async function handleBroadcastPhoto(ctx) {
     }
   }
 
-  let finalText = `✅ 图片广播完成！\n\n✅ 成功：${success} 人\n❌ 失败：${failed} 人`;
+  let finalText = `✅ 图文广播完成！\n\n✅ 成功：${success} 人\n❌ 失败：${failed} 人`;
+  if (failedUsers.length > 0 && failedUsers.length <= 20) {
+    finalText += `\n\n失败详情：\n${failedUsers.join('\n')}`;
+  }
+  try {
+    await ctx.api.editMessageText(ctx.chat.id, statusMsg.message_id, finalText, {
+      reply_markup: buildAdminBroadcastKeyboard(getUserCount()),
+    });
+  } catch {
+    await ctx.reply(finalText, { reply_markup: buildAdminBroadcastKeyboard(getUserCount()) });
+  }
+}
+
+async function handleBroadcastMixed(ctx, mixedText) {
+  const photo = ctx.message.photo[ctx.message.photo.length - 1];
+  const fileId = photo.file_id;
+  const rawCaption = ctx.message.caption || '';
+  const escapedCaption = escapeHtml(rawCaption);
+  const escapedText = escapeHtml(mixedText);
+  const buttons = buildInlineKeyboard(config.broadcastButtons);
+  const users = getAllUsers();
+  let success = 0;
+  let failed = 0;
+  const failedUsers = [];
+
+  const statusMsg = await ctx.reply(`📤 正在文图双条广播... (0/${users.length})\n\n第 1 条：文字\n第 2 条：图片${rawCaption ? '（含caption）' : ''}`);
+
+  for (let i = 0; i < users.length; i++) {
+    const user = users[i];
+    try {
+      if (escapedText) {
+        await ctx.api.sendMessage(user.id, escapedText, {
+          parse_mode: 'HTML',
+          disable_web_page_preview: false,
+        });
+      }
+      await ctx.api.sendPhoto(user.id, fileId, {
+        caption: escapedCaption || undefined,
+        parse_mode: 'HTML',
+        reply_markup: buttons,
+      });
+      success++;
+    } catch (e) {
+      failed++;
+      failedUsers.push(`${user.id} (${e.code || e.description || 'error'})`);
+    }
+    if ((i + 1) % 15 === 0 || i === users.length - 1) {
+      try {
+        await ctx.api.editMessageText(
+          ctx.chat.id,
+          statusMsg.message_id,
+          `📤 正在文图双条广播... (${i + 1}/${users.length})\n成功 ${success} / 失败 ${failed}`
+        );
+      } catch {}
+      if (i < users.length - 1) {
+        await new Promise(r => setTimeout(r, 120));
+      }
+    }
+  }
+
+  let finalText = `✅ 文图双条广播完成！\n\n✅ 成功：${success} 人\n❌ 失败：${failed} 人`;
+  if (failedUsers.length > 0 && failedUsers.length <= 20) {
+    finalText += `\n\n失败详情：\n${failedUsers.join('\n')}`;
+  }
+  try {
+    await ctx.api.editMessageText(ctx.chat.id, statusMsg.message_id, finalText, {
+      reply_markup: buildAdminBroadcastKeyboard(getUserCount()),
+    });
+  } catch {
+    await ctx.reply(finalText, { reply_markup: buildAdminBroadcastKeyboard(getUserCount()) });
+  }
+}
+
+async function handleBroadcastSmart(ctx) {
+  const buttons = buildInlineKeyboard(config.broadcastButtons);
+  const users = getAllUsers();
+  let success = 0;
+  let failed = 0;
+  const failedUsers = [];
+  let msgType = '消息';
+  if (ctx.message.text) msgType = '文字';
+  else if (ctx.message.photo) msgType = '图片';
+  else if (ctx.message.sticker) msgType = '贴纸';
+  else if (ctx.message.document) msgType = '文档';
+  else if (ctx.message.video) msgType = '视频';
+  else if (ctx.message.audio) msgType = '音频';
+  else if (ctx.message.voice) msgType = '语音';
+  else if (ctx.message.animation) msgType = '动画';
+  else if (ctx.message.video_note) msgType = '圆形视频';
+
+  const statusMsg = await ctx.reply(`📤 正在智能广播 (${msgType})... (0/${users.length})`);
+
+  for (let i = 0; i < users.length; i++) {
+    const user = users[i];
+    try {
+      const fwd = await ctx.copyMessage(user.id);
+      if (buttons && fwd && fwd.message_id) {
+        try {
+          await ctx.api.editMessageReplyMarkup(user.id, fwd.message_id, {
+            reply_markup: buttons,
+          });
+        } catch (_) {}
+      }
+      success++;
+    } catch (e) {
+      failed++;
+      failedUsers.push(`${user.id} (${e.code || e.description || 'error'})`);
+    }
+    if ((i + 1) % 20 === 0 || i === users.length - 1) {
+      try {
+        await ctx.api.editMessageText(
+          ctx.chat.id,
+          statusMsg.message_id,
+          `📤 正在智能广播 (${msgType})... (${i + 1}/${users.length})\n成功 ${success} / 失败 ${failed}`
+        );
+      } catch {}
+      if (i < users.length - 1) {
+        await new Promise(r => setTimeout(r, 80));
+      }
+    }
+  }
+
+  let finalText = `✅ 智能广播 (${msgType}) 完成！\n\n✅ 成功：${success} 人\n❌ 失败：${failed} 人`;
   if (failedUsers.length > 0 && failedUsers.length <= 20) {
     finalText += `\n\n失败详情：\n${failedUsers.join('\n')}`;
   }
@@ -437,6 +622,7 @@ async function forwardToAdmins(ctx) {
       const infoMsg = await ctx.api.sendMessage(adminId, `📩 收到新消息！\n\n${userInfo}\n\n👇 请直接回复下面的这条消息来回复用户：`);
       let forwardedId = null;
       const replyOpts = { reply_to_message_id: infoMsg.message_id };
+      const isAnimatedSticker = ctx.message.sticker && (ctx.message.sticker.is_animated || ctx.message.sticker.is_video);
 
       if (ctx.message.text) {
         const fwd = await ctx.api.sendMessage(adminId, ctx.message.text, replyOpts);
@@ -473,17 +659,37 @@ async function forwardToAdmins(ctx) {
         });
         forwardedId = fwd.message_id;
       } else if (ctx.message.sticker) {
-        const fwd = await ctx.api.sendSticker(adminId, ctx.message.sticker.file_id, replyOpts);
-        forwardedId = fwd.message_id;
+        if (isAnimatedSticker) {
+          try {
+            const fwd = await ctx.copyMessage(adminId, replyOpts);
+            forwardedId = fwd.message_id;
+          } catch (e) {
+            const fwd2 = await ctx.api.sendSticker(adminId, ctx.message.sticker.file_id, replyOpts);
+            forwardedId = fwd2.message_id;
+          }
+        } else {
+          const fwd = await ctx.api.sendSticker(adminId, ctx.message.sticker.file_id, replyOpts);
+          forwardedId = fwd.message_id;
+        }
       } else if (ctx.message.animation) {
-        const fwd = await ctx.api.sendAnimation(adminId, ctx.message.animation.file_id, {
-          caption: ctx.message.caption,
-          ...replyOpts,
-        });
-        forwardedId = fwd.message_id;
+        try {
+          const fwd = await ctx.copyMessage(adminId, replyOpts);
+          forwardedId = fwd.message_id;
+        } catch (e) {
+          const fwd2 = await ctx.api.sendAnimation(adminId, ctx.message.animation.file_id, {
+            caption: ctx.message.caption,
+            ...replyOpts,
+          });
+          forwardedId = fwd2.message_id;
+        }
       } else if (ctx.message.video_note) {
-        const fwd = await ctx.api.sendVideoNote(adminId, ctx.message.video_note.file_id, replyOpts);
-        forwardedId = fwd.message_id;
+        try {
+          const fwd = await ctx.copyMessage(adminId, replyOpts);
+          forwardedId = fwd.message_id;
+        } catch (e) {
+          const fwd2 = await ctx.api.sendVideoNote(adminId, ctx.message.video_note.file_id, replyOpts);
+          forwardedId = fwd2.message_id;
+        }
       } else if (ctx.message.location) {
         const fwd = await ctx.api.sendLocation(adminId, ctx.message.location.latitude, ctx.message.location.longitude, {
           ...replyOpts,
@@ -518,6 +724,7 @@ async function forwardToAdmins(ctx) {
 async function forwardReplyToUser(ctx, userId) {
   try {
     let sentMsg = null;
+    const isAnimatedSticker = ctx.message.sticker && (ctx.message.sticker.is_animated || ctx.message.sticker.is_video);
 
     if (ctx.message.text) {
       sentMsg = await ctx.api.sendMessage(userId, escapeHtml(ctx.message.text), {
@@ -547,13 +754,29 @@ async function forwardReplyToUser(ctx, userId) {
         caption: ctx.message.caption,
       });
     } else if (ctx.message.sticker) {
-      sentMsg = await ctx.api.sendSticker(userId, ctx.message.sticker.file_id);
+      if (isAnimatedSticker) {
+        try {
+          sentMsg = await ctx.copyMessage(userId);
+        } catch (e) {
+          sentMsg = await ctx.api.sendSticker(userId, ctx.message.sticker.file_id);
+        }
+      } else {
+        sentMsg = await ctx.api.sendSticker(userId, ctx.message.sticker.file_id);
+      }
     } else if (ctx.message.animation) {
-      sentMsg = await ctx.api.sendAnimation(userId, ctx.message.animation.file_id, {
-        caption: ctx.message.caption,
-      });
+      try {
+        sentMsg = await ctx.copyMessage(userId);
+      } catch (e) {
+        sentMsg = await ctx.api.sendAnimation(userId, ctx.message.animation.file_id, {
+          caption: ctx.message.caption,
+        });
+      }
     } else if (ctx.message.video_note) {
-      sentMsg = await ctx.api.sendVideoNote(userId, ctx.message.video_note.file_id);
+      try {
+        sentMsg = await ctx.copyMessage(userId);
+      } catch (e) {
+        sentMsg = await ctx.api.sendVideoNote(userId, ctx.message.video_note.file_id);
+      }
     } else {
       try {
         sentMsg = await ctx.copyMessage(userId);
