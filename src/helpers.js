@@ -28,6 +28,45 @@ function parseButtonsArray(jsonOrArr) {
   }
 }
 
+function parseButtonsFriendly(rawText) {
+  if (!rawText) return [];
+  const text = String(rawText).trim();
+  if (text.startsWith('[')) {
+    return parseButtonsArray(text);
+  }
+  const lines = text.split('\n').map(l => l.trimEnd());
+  const rows = [];
+  let curRow = [];
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (line === '' || /^[-—=]{3,}$/.test(line)) {
+      if (curRow.length > 0) { rows.push(curRow); curRow = []; }
+      continue;
+    }
+    const oneLinePairs = line.split(/\s+｜\s+|\s+\|\s+/).map(s => s.trim()).filter(Boolean);
+    if (oneLinePairs.length > 1 && oneLinePairs.every(p => /\|/.test(p) || /｜/.test(p))) {
+      for (const pair of oneLinePairs) {
+        const sep = pair.indexOf('｜') >= 0 ? '｜' : '|';
+        const i2 = pair.indexOf(sep);
+        if (i2 < 0) continue;
+        const t = pair.slice(0, i2).trim();
+        const url = pair.slice(i2 + 1).trim();
+        if (t && url) curRow.push({ text: t, url });
+      }
+      rows.push(curRow);
+      curRow = [];
+      continue;
+    }
+    const idx = line.indexOf('|') >= 0 ? line.indexOf('|') : line.indexOf('｜');
+    if (idx < 0) continue;
+    const t = line.slice(0, idx).trim();
+    const url = line.slice(idx + 1).trim();
+    if (t && url) curRow.push({ text: t, url });
+  }
+  if (curRow.length > 0) rows.push(curRow);
+  return rows;
+}
+
 function getEffectiveInlineButtons() {
   const saved = getSetting('inline_buttons', null);
   if (saved) return parseButtonsArray(saved);
@@ -314,6 +353,7 @@ module.exports = {
   buildBroadcastButtonsControls,
   stringifyButtons,
   parseButtonsArray,
+  parseButtonsFriendly,
   escapeHtml,
   unescapeNewlines,
   getEffectiveInlineButtons,

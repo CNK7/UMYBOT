@@ -630,45 +630,6 @@ bot.on('callback_query', async (ctx, next) => {
   }
 });
 
-function parseButtonsFriendly(rawText) {
-  if (!rawText) return [];
-  const text = rawText.trim();
-  if (text.startsWith('[')) {
-    return parseButtonsArray(text);
-  }
-  const lines = text.split('\n').map(l => l.trimEnd());
-  const rows = [];
-  let curRow = [];
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (line === '' || /^[-—=]{3,}$/.test(line)) {
-      if (curRow.length > 0) { rows.push(curRow); curRow = []; }
-      continue;
-    }
-    const oneLinePairs = line.split(/\s+｜\s+|\s+\|\s+/).map(s => s.trim()).filter(Boolean);
-    if (oneLinePairs.length > 1 && oneLinePairs.every(p => /\|/.test(p) || /｜/.test(p))) {
-      for (const pair of oneLinePairs) {
-        const sep = pair.indexOf('｜') >= 0 ? '｜' : '|';
-        const i2 = pair.indexOf(sep);
-        if (i2 < 0) continue;
-        const t = pair.slice(0, i2).trim();
-        const url = pair.slice(i2 + 1).trim();
-        if (t && url) curRow.push({ text: t, url });
-      }
-      rows.push(curRow);
-      curRow = [];
-      continue;
-    }
-    const idx = line.indexOf('|') >= 0 ? line.indexOf('|') : line.indexOf('｜');
-    if (idx < 0) continue;
-    const t = line.slice(0, idx).trim();
-    const url = line.slice(idx + 1).trim();
-    if (t && url) curRow.push({ text: t, url });
-  }
-  if (curRow.length > 0) rows.push(curRow);
-  return rows;
-}
-
 bot.on('message', async (ctx, next) => {
   const fromId = ctx.from?.id;
   if (!fromId) return next();
@@ -692,9 +653,11 @@ bot.on('message', async (ctx, next) => {
             welcome_premium_emoji_id: 'welcome_premium_emoji_text',
             quote_lock_emoji_id: null,
             heart_emoji_id: null,
+            footer_globe_emoji_id: null,
             status_check_emoji_id: null,
             status_globe_emoji_id: null,
             status_bell_emoji_id: null,
+            auto_reply_bot_emoji_id: null,
           };
           const companionKey = companionMap[key];
           if (companionKey && emojiText) {
