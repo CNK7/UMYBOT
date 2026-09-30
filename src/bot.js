@@ -70,52 +70,76 @@ function clearAdminMode(adminId) {
 }
 
 bot.command('start', async (ctx) => {
-  const from = ctx.from;
-  if (from) {
-    addUser(from.id, from.username, from.first_name, from.last_name);
-  }
-
-  clearAdminMode(ctx.from?.id);
-
-  if (isAdmin(ctx.from?.id)) {
-    const userCount = getUserCount();
-    await ctx.reply(`🎛️ 管理员控制台\n\n当前用户数：${userCount} 人${isVercel ? '\n\n⚠️ 当前环境：Vercel Serverless\n冷启动数据会重置，用户量大请改用 aapanel 部署。' : ''}\n\n⚙️ 新增功能：配置管理 → 直接在 Telegram 改欢迎消息、按钮，不用去 Vercel 重部署！`, {
-      reply_markup: buildAdminBroadcastKeyboard(userCount),
-    });
-    return;
-  }
-
-  const welcomeText = buildWelcomeText(ctx);
-  const replyMarkup = buildInlineKeyboard(getEffectiveInlineButtons());
-  const stickerId = getEffectiveWelcomeStickerId();
-  const imageUrl = getEffectiveWelcomeImageUrl();
-
-  if (stickerId) {
-    try {
-      await ctx.replyWithSticker(stickerId);
-    } catch (e) {
-      console.error('欢迎贴纸发送失败，已跳过:', e.message);
+  try {
+    const from = ctx.from;
+    if (from) {
+      try {
+        addUser(from.id, from.username, from.first_name, from.last_name);
+      } catch (e) {
+        console.warn('记录用户失败（不影响使用）:', e.message);
+      }
     }
-  }
 
-  if (imageUrl) {
-    try {
-      await ctx.replyWithPhoto(imageUrl, {
-        caption: welcomeText,
-        parse_mode: 'HTML',
-        reply_markup: replyMarkup,
-        show_caption_above_media: true,
+    try { clearAdminMode(ctx.from?.id); } catch (_) {}
+
+    if (isAdmin(ctx.from?.id)) {
+      let userCount = 0;
+      try { userCount = getUserCount(); } catch (_) {}
+      await ctx.reply(`🎛️ 管理员控制台\n\n当前用户数：${userCount} 人${isVercel ? '\n\n⚠️ 当前环境：Vercel Serverless\n冷启动数据会重置，用户量大请改用 aapanel 部署。' : ''}\n\n⚙️ 新增功能：配置管理 → 直接在 Telegram 改欢迎消息、按钮，不用去 Vercel 重部署！`, {
+        reply_markup: buildAdminBroadcastKeyboard(userCount),
       });
       return;
-    } catch (e) {
-      console.error('欢迎图片发送失败，改用纯文字:', e.message);
     }
-  }
 
-  await ctx.reply(welcomeText, {
-    parse_mode: 'HTML',
-    reply_markup: replyMarkup,
-  });
+    let welcomeText = '';
+    try { welcomeText = buildWelcomeText(ctx); } catch (e) {
+      console.error('生成欢迎文字失败:', e.message);
+      welcomeText = '👋 你好！直接发消息给我就能联系客服啦～';
+    }
+    let replyMarkup = undefined;
+    try {
+      const btns = getEffectiveInlineButtons();
+      replyMarkup = buildInlineKeyboard(btns);
+    } catch (e) {
+      console.error('生成欢迎按钮失败:', e.message);
+    }
+    let stickerId = '';
+    try { stickerId = getEffectiveWelcomeStickerId(); } catch (_) {}
+    let imageUrl = '';
+    try { imageUrl = getEffectiveWelcomeImageUrl(); } catch (_) {}
+
+    if (stickerId) {
+      try {
+        await ctx.replyWithSticker(stickerId);
+      } catch (e) {
+        console.error('欢迎贴纸发送失败，已跳过:', e.message);
+      }
+    }
+
+    if (imageUrl) {
+      try {
+        await ctx.replyWithPhoto(imageUrl, {
+          caption: welcomeText,
+          parse_mode: 'HTML',
+          reply_markup: replyMarkup,
+          show_caption_above_media: true,
+        });
+        return;
+      } catch (e) {
+        console.error('欢迎图片发送失败，改用纯文字:', e.message);
+      }
+    }
+
+    await ctx.reply(welcomeText, {
+      parse_mode: 'HTML',
+      reply_markup: replyMarkup,
+    });
+  } catch (bigE) {
+    console.error('[FATAL] /start 处理失败:', bigE && bigE.stack ? bigE.stack : bigE);
+    try {
+      await ctx.reply('👋 你好！直接发送任意文字/图片/文件给我就能联系客服啦～\n（欢迎消息样式解析出了小问题，已自动降级）');
+    } catch (_) {}
+  }
 });
 
 bot.command('menu', async (ctx) => {
@@ -275,9 +299,13 @@ bot.callbackQuery('cfg_reset_all', async (ctx) => {
 async function showBroadcastButtonsPage(ctx, modeLabel) {
   const adminId = String(ctx.from.id);
   const current = getEffectiveBroadcastButtons();
-  setTempBroadcast(adminId, { buttons: parseButtonsArray(JSON.stringify(current)), modeLabel });
-  const ctrl = buildBroadcastButtonsControls(adminId, current);
-  const userCount = getUserCount();
+  const buttonsArr = Array.isArray(current) && current.length > 0 && Array.isArray(current[0])
+    ? current
+    : parseButtonsArray(JSON.stringify(current));
+  setTempBroadcast(adminId, { buttons: buttonsArr, modeLabel });
+  const ctrl = buildBroadcastButtonsControls(adminId, Array.isArray(current) && current.length > 0 && Array.isArray(current[0]) ? current.flat() : current);
+  let userCount = 0;
+  try { userCount = getUserCount(); } catch (_) {}
   await ctx.editMessageText(`${modeLabel}\n共 ${userCount} 位用户将收到\n\n🔘 当前广播底部按钮配置：\n${ctrl.buttonsText}\n\n✨ 你可以在这里临时改这一次广播要用的按钮（改完点 ✅ 继续发送），也可以点 ➕ 替换按钮。如果想要永久性修改，请用「⚙️ 配置管理」改。\n\n准备好之后点：\n  ✅ 用当前按钮继续 → 下一步发送你要广播的内容`, {
     reply_markup: ctrl.keyboard,
     parse_mode: 'HTML',
@@ -606,17 +634,29 @@ bot.on('message', async (ctx, next) => {
   if (!fromId) return next();
 
   if (isAdmin(fromId)) {
-    const replyTo = ctx.message.reply_to_message;
-    if (replyTo && replyTo.message_id) {
-      const session = getSession(replyTo.message_id);
-      if (session) {
-        await forwardReplyToUser(ctx, session.userId);
-        return;
+    try {
+      const replyTo = ctx.message.reply_to_message;
+      if (replyTo && replyTo.message_id) {
+        const session = getSession(replyTo.message_id);
+        if (session) {
+          await forwardReplyToUser(ctx, session.userId);
+          return;
+        }
       }
+    } catch (e) {
+      console.error('管理员回复用户处理失败:', e.message);
     }
   } else {
-    await forwardToAdmins(ctx);
-    return;
+    try {
+      await forwardToAdmins(ctx);
+      return;
+    } catch (e) {
+      console.error('转发用户消息给管理员失败:', e.message);
+      try {
+        await ctx.reply('✅ 已收到您的消息，客服正在赶来的路上～');
+      } catch (_) {}
+      return;
+    }
   }
 
   await next();
@@ -626,7 +666,7 @@ function getTempOrDefaultButtons(ctx) {
   const fromId = ctx.from?.id;
   if (!fromId) return getEffectiveBroadcastButtons();
   const temp = getTempBroadcast(String(fromId));
-  if (temp && temp.active && Array.isArray(temp.buttons)) {
+  if (temp && Array.isArray(temp.buttons) && temp.buttons.length > 0) {
     return temp.buttons;
   }
   return getEffectiveBroadcastButtons();
@@ -874,7 +914,7 @@ async function handleBroadcastSmart(ctx) {
 
 async function handlePinMessage(ctx) {
   let pinnedMsgId = null;
-  const buttons = buildInlineKeyboard(config.broadcastButtons);
+  const buttons = buildInlineKeyboard(getTempOrDefaultButtons(ctx));
 
   try {
     if (ctx.message.photo) {
