@@ -1,10 +1,10 @@
 {
   "version": 2,
-  "buildCommand": "echo 'No build needed for Node.js project'",
+  "framework": null,
+  "buildCommand": "echo 'No build step required'",
   "installCommand": "npm install --omit=dev",
   "outputDirectory": ".",
-  "cleanUrls": true,
-  "trailingSlash": false,
+  "cleanUrls": false,
   "functions": {
     "api/webhook.js": {
       "maxDuration": 60
@@ -16,20 +16,8 @@
       "destination": "/api/webhook"
     },
     {
-      "source": "/",
+      "source": "/((?!api/).*)",
       "destination": "/api/webhook"
-    },
-    {
-      "source": "/health",
-      "destination": "/api/webhook"
-    }
-  ],
-  "headers": [
-    {
-      "source": "/health",
-      "headers": [
-        { "key": "Cache-Control", "value": "no-store" }
-      ]
     }
   ]
 }
