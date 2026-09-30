@@ -1,0 +1,30 @@
+{
+  "name": "telegram-customer-service-bot",
+  "version": "1.1.0",
+  "description": "Telegram 客服机器人 - 消息转发、广播、按钮、置顶消息、会员表情支持",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node src/index.js",
+    "polling": "node src/index.js",
+    "webhook": "node src/webhook.js",
+    "check": "node scripts/check.js"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "customer-service",
+    "grammy",
+    "live-chat",
+    "broadcast"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "grammy": "^1.30.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
+  },
+  "engines": {
+    "node": ">=18.17.0"
+  }
+}
